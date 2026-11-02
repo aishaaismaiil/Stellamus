@@ -1,0 +1,11 @@
+ConduzPT Chelas — protótipo 02
+
+1. Extrai o ZIP.
+2. Abre o Godot 4, escolhe Importar e seleciona project.godot.
+3. Carrega em F5.
+4. O mapa real OSM já vem incluído: não é necessário usar Overpass.
+5. Usa F3 para a vista aérea; Shift+1 para primeira mudança, seta para cima para acelerar, setas laterais para virar, baixo para travar, R para reposicionar.
+
+O que foi acrescentado: mapa OSM incluído, carregamento local imediato, passeios aproximados, marcas centrais indicativas, exclusão de caminhos pedonais da lista de vias conduzíveis.
+
+Limites: edifícios são caixas simplificadas, não há tráfego nem sinais verificados, a física é simplificada e as vias OSM não são trajetos oficiais de exame. Não usar para aprender sinalização específica ou regras de prioridade de um cruzamento real.

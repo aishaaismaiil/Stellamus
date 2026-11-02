@@ -1,0 +1,5 @@
+{
+  "supabaseUrl": "https://ctfhkucnjeehtgvcuagx.supabase.co",
+  "supabasePublishableKey": "sb_publishable_B9I1471Lwttr3aeSmluY6Q_eqbO9KJ8",
+  "projects": ["stellamus", "lifelab", "sensora", "conduzpt"]
+}
