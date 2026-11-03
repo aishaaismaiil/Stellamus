@@ -1,0 +1,1 @@
+Pacote de teste criado a partir do index(5).html enviado. Inclui correção de Início e ajustes visuais do chat. ATENÇÃO: config.js é um marcador e deve ser substituído pelo config.js existente no repositório antes de publicar. Ícones são substitutos temporários; use os originais do repositório. Não foi feito teste end-to-end nem publicação.

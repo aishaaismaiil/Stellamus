@@ -6975,5 +6975,33 @@ if("IntersectionObserver" in window){var io=new IntersectionObserver(function(es
 @media(min-width:821px){.anfsheet.on{display:block;position:fixed;inset:0;z-index:70;background:#05081466}.constellation-menu{position:absolute;right:20px;top:70px;width:min(360px,90vw);max-height:75vh;overflow:auto;padding:16px;border-radius:16px;background:var(--surface);color:var(--ink);display:grid;gap:8px}.app{grid-template-rows:auto 1fr}.app>.top{display:block;grid-column:2;grid-row:1;position:sticky;top:0;z-index:40;padding:10px 20px;background:var(--surface)}.app>.rail{grid-column:1;grid-row:1/span 2}.app>.mainwrap{grid-column:2;grid-row:2}.top .topnav{display:none}}
 @media(max-width:700px){.social-home{grid-template-columns:minmax(0,1fr)}#top .row1>.logo b{display:none}#top .row1{gap:5px}}
 </style>
+
+<style id="stellamus-stability-2026">
+/* A conversa mantém uma altura previsível, sem deslocar o campo de escrita. */
+.message-layout{align-items:start;min-width:0}
+.message-layout>div{min-width:0}
+.message-layout .panel{min-width:0}
+#dmbox{height:clamp(260px,48dvh,460px)!important;max-height:460px;overflow-y:auto;overscroll-behavior:contain;overflow-anchor:none}
+form[data-f="dm"]{display:flex!important;align-items:center;gap:8px;flex-wrap:nowrap!important;min-width:0}
+form[data-f="dm"] #dm-txt{min-width:0;flex:1;font-size:16px!important}
+form[data-f="dm"] button{flex:none;min-height:44px}
+@media(max-width:700px){.message-layout{display:grid;grid-template-columns:minmax(0,1fr)}#dmbox{height:38dvh!important;min-height:220px}.mainwrap{overflow-x:clip}html{scroll-behavior:auto!important}}
+:root[data-theme="dark"] option,:root[data-theme="dark"] select{color:#eef1ff!important;background:#141838!important}
+</style>
+<script id="stellamus-home-stability-2026">
+/* A página Início é sempre independente da última secção visitada. */
+(function(){
+ if(typeof RENDER==='undefined')return;
+ RENDER.inicio=function(){
+  var title='<header class="fh-head"><p class="crumb">Stellamus / Início</p><h2>'+esc(t('Conversas e debates'))+'</h2><p class="sm m">'+esc(t('Partilha uma pergunta, inicia uma conversa ou participa num debate.'))+'</p></header>';
+  var buttons='<section class="panel stack-s"><h3>'+esc(t('O que achas de…?'))+'</h3><p class="sm m">'+esc(t('Começa uma conversa com a comunidade.'))+'</p><div class="row"><button class="btn" type="button" data-a="homequestion" data-starter="">'+esc(t('Começar debate'))+'</button><button class="btn sec" type="button" data-go="mural">'+esc(t('Publicar conversa'))+'</button></div></section>';
+  var form=(OPEN.homequestion&&typeof questionComposer==='function')?questionComposer(true):'';
+  var debates='';
+  try{debates=DEBS.filter(visible).slice().sort(function(a,b){return (b.last||b.ts)-(a.last||a.ts)}).slice(0,12).map(function(d){return '<article class="panel stack-s"><p class="xs m">'+esc(nameOf(d.uid))+'</p><h3>'+esc(d.tit)+'</h3>'+(d.desc?'<p class="sm">'+esc(String(d.desc).slice(0,220))+'</p>':'')+'<div><button class="btn sec s" data-a="deb" data-id="'+esc(d.id)+'">'+esc(t('Responder'))+'</button></div></article>'}).join('')}catch(e){console.warn('Home feed',e)}
+  return title+buttons+form+'<section class="stack" aria-label="Debates recentes"><h3>'+esc(t('Debates recentes'))+'</h3>'+(debates||'<div class="panel"><p class="m">'+esc(t('Ainda não há debates. Sê a primeira pessoa a publicar.'))+'</p></div>')+'</section>';
+ };
+ window.addEventListener('hashchange',function(){if(location.hash==='#inicio'&&typeof go==='function'&&V!=='inicio')go('inicio')});
+})();
+</script>
 </body>
 </html>

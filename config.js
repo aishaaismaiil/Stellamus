@@ -1,4 +1,2 @@
-window.UO_CONFIG = {
-  SUPABASE_URL: "https://ctfhkucnjeehtgvcuagx.supabase.co",
-  SUPABASE_ANON_KEY: "sb_publishable_B9I1471Lwttr3aeSmluY6Q_eqbO9KJ8"
-};
+// Copy the existing config.js from your live repository here before deployment.
+// Do not replace production configuration with guessed credentials.
