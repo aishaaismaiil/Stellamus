@@ -691,6 +691,15 @@ html.anf-paused *,html.anf-paused *::after{animation-play-state:paused!important
 .anf2-door{position:absolute;text-align:center;padding:4px 0;border-radius:999px;background:var(--accent);color:#fff;font:700 .68rem var(--f-body);letter-spacing:.06em;text-transform:uppercase;z-index:2}
 </style>
 
+<style id="stellamus-dm-stability">
+/* Chat: altura previsível, sem reflow quando o teclado móvel aparece. */
+#dmbox{height:340px!important;min-height:0!important;max-height:340px!important;overflow-y:auto;overscroll-behavior:contain;overflow-anchor:none}
+.message-layout{align-items:start}
+#dm-txt{min-width:0;flex:1 1 auto;font-size:16px!important}
+form[data-f="dm"]{display:flex!important;align-items:center;gap:8px;flex-wrap:nowrap!important}
+form[data-f="dm"] .btn{flex:0 0 auto}
+@media(max-width:700px){#dmbox{height:280px!important;max-height:280px!important}.message-layout{grid-template-columns:minmax(0,1fr)!important}}
+</style>
 </head>
 <body>
 <div class="app">
@@ -1138,11 +1147,15 @@ function syncXp(){if(!DB||!MYP||WRITE===false)return;var x=xpOf(myStats());if(x!
 /* ---------- navegação ---------- */
 var routeTrail=[], returningToRoute=false, returnScroll=null;
 function go(v,det,tab){
-  if(!returningToRoute&&(v!==V||JSON.stringify(det||null)!==JSON.stringify(DET||null)||(tab&&tab!==TAB[v]))){
-    routeTrail.push({view:V,detail:DET,tab:TAB[V]||"",scroll:window.scrollY});
-    if(routeTrail.length>40)routeTrail.shift();
-  }
+  // Voltar apenas dentro das ramificações da mesma secção.
   if(!VIEWS.some(function(x){return x[0]===v}))v="inicio";
+  if(!returningToRoute){
+    if(v!==V){routeTrail.length=0;}
+    else if(JSON.stringify(det||null)!==JSON.stringify(DET||null)||(tab&&tab!==TAB[v])){
+      routeTrail.push({view:V,detail:DET,tab:TAB[V]||"",scroll:window.scrollY});
+      if(routeTrail.length>40)routeTrail.shift();
+    }
+  }
   if(v!==V||JSON.stringify(det||null)!==JSON.stringify(DET))closeDetailSubs();
   V=v;DET=det||null;if(tab)TAB[v]=tab;REPORTING=null;
   try{history.replaceState(null,"","#"+v)}catch(e){}
@@ -1169,6 +1182,12 @@ async function joinLiveRoom(id){if(!ROOM||!ROOM.join)return;try{LIVEROOM=ROOM.jo
 var rq=false,rqTop=false,DOPEN={};
 function render(top){if(top)rqTop=true;if(rq)return;rq=true;requestAnimationFrame(function(){rq=false;var tp=rqTop;rqTop=false;doRender(tp)})}
 function doRender(toTop){
+  // Não reconstruir toda a página enquanto alguém escreve uma mensagem.
+  // Atualizar apenas a lista de mensagens evita saltos de scroll e do teclado.
+  if(!toTop&&V==="mensagens"&&DMC&&document.activeElement&&document.activeElement.id==="dm-txt"&&$("dmbox")){
+    updateDmMessagesOnly();
+    return;
+  }
   var main=$("main"),keep={},act=document.activeElement,aid=act&&main.contains(act)?act.id:null,sel=null,chats={};
   if(!toTop){main.querySelectorAll("input[id],textarea[id],select[id]").forEach(function(el){if(el.type==="file")return;keep[el.id]=el.type==="checkbox"||el.type==="radio"?{c:el.checked}:{v:el.value}});
     if(act&&aid&&act.selectionStart!=null)sel=[act.selectionStart,act.selectionEnd];
@@ -1184,7 +1203,7 @@ function doRender(toTop){
   main.querySelectorAll("details[id]").forEach(function(el){if(DOPEN[el.id])el.open=true});
   Object.keys(MSGS).forEach(function(id){var m=MSGS[id];if(Date.now()-m.ts>7000){delete MSGS[id];return}var el=$(id);if(el){el.textContent=m.s;el.classList.toggle("err",m.err)}});
   main.querySelectorAll("[data-keepscroll]").forEach(function(el){var c=chats[el.id];if(!c||c.bottom)el.scrollTop=el.scrollHeight;else el.scrollTop=c.top});
-  if(routeTrail.length&&!main.querySelector('[data-a="back"]')){
+  if(routeTrail.some(function(r){return r.view===V})&&!main.querySelector('[data-a="back"]')){
     main.insertAdjacentHTML("afterbegin",'<div class="route-return">'+backBtn()+'</div>');
   }
   if(toTop){window.scrollTo(0,returnScroll===null?0:returnScroll);returnScroll=null}
@@ -1819,7 +1838,7 @@ var ACT={
  tab:function(d){TAB[d.v]=d.t;if(d.v===V&&DET){closeDetailSubs();DET=null}render(true)},
  back:function(){
    var previous=routeTrail.pop();
-   if(!previous){closeDetailSubs();DET=null;render(true);return}
+    if(!previous||previous.view!==V){routeTrail.length=0;closeDetailSubs();DET=null;render(true);return}
    returningToRoute=true;returnScroll=previous.scroll;
    try{TAB[previous.view]=previous.tab;go(previous.view,previous.detail,previous.tab||undefined)}
    finally{returningToRoute=false}
@@ -2112,15 +2131,30 @@ RENDER.mensagens=function(){
   var pane="";
   if(c){var o=otherOf(c),M=arr(DMMSG[c.id]).filter(visible),al=dmAllowed(o);
     pane='<div class="panel" style="gap:.6rem"><div class="row sb">'+whoHTML(o,40,esc(commonWith(o).slice(0,3).join(" · ")))+'<div class="acts"><button class="btn ghost" type="button" data-a="user" data-id="'+esc(o)+'">'+esc(t("Ver perfil"))+'</button><button class="btn ghost" type="button" data-a="block" data-id="'+esc(o)+'">'+esc(t("Bloquear"))+'</button></div></div>'+
-      '<div class="chat" id="dmbox" data-keepscroll="1" style="height:min(52vh,440px);background:var(--surface2);border-radius:10px;padding:.6rem">'+(M.length?M.map(function(m){var mine=m.uid===UID;return'<div style="display:flex;justify-content:'+(mine?"flex-end":"flex-start")+';margin:.2rem 0"><div style="max-width:78%;background:'+(mine?"var(--sec)":"var(--surface)")+';color:'+(mine?"var(--sec-ink)":"var(--ink)")+';border:1.5px solid var(--edge);border-radius:14px;padding:.45rem .7rem"><p class="pre wrap">'+esc(m.txt)+'</p><span class="xs" style="opacity:.7">'+esc(ftime(new Date(m.ts)))+'</span></div></div>'}).join(""):'<p class="sm m">'+esc(t("Diz olá. Começa por aquilo que têm em comum."))+'</p>')+'</div>'+
+      '<div class="chat" id="dmbox" data-keepscroll="1" style="height:340px;background:var(--surface2);border-radius:10px;padding:.6rem">'+(M.length?M.map(function(m){var mine=m.uid===UID;return'<div style="display:flex;justify-content:'+(mine?"flex-end":"flex-start")+';margin:.2rem 0"><div style="max-width:78%;background:'+(mine?"var(--sec)":"var(--surface)")+';color:'+(mine?"var(--sec-ink)":"var(--ink)")+';border:1.5px solid var(--edge);border-radius:14px;padding:.45rem .7rem"><p class="pre wrap">'+esc(m.txt)+'</p><span class="xs" style="opacity:.7">'+esc(ftime(new Date(m.ts)))+'</span></div></div>'}).join(""):'<p class="sm m">'+esc(t("Diz olá. Começa por aquilo que têm em comum."))+'</p>')+'</div>'+
       (al.ok?'<form class="row" data-f="dm" data-id="'+esc(c.id)+'" data-u="'+esc(o)+'" style="flex-wrap:nowrap"><input class="fld" id="dm-txt" maxlength="1000" autocomplete="off" placeholder="'+esc(t("Escreve uma mensagem"))+'" aria-label="'+esc(t("Mensagem"))+'"><button class="btn" type="submit">'+esc(t("Enviar"))+'</button></form>':'<p class="note">'+esc(al.why)+'</p>')+
       '<p class="xs m">'+esc(t("As mensagens ficam guardadas na base de dados da Anfitriu e não são encriptadas. Não partilhes dados sensíveis."))+'</p></div>'}
   else pane=emptyHTML(esc(t("Escolhe uma conversa ou começa uma nova a partir do perfil de alguém.")));
   return h+'<div class="message-layout"><div>'+list+'</div><div>'+pane+'</div></div>';
 };
+// Atualização isolada: não recria a caixa de escrita, a navegação nem o ecrã.
+function updateDmMessagesOnly(){
+  var box=$("dmbox");
+  if(!box||V!=="mensagens"||!DMC)return;
+  var tmp=document.createElement("div");
+  tmp.innerHTML=RENDER.mensagens();
+  var fresh=tmp.querySelector("#dmbox");
+  if(!fresh)return;
+  var wasBottom=box.scrollHeight-box.scrollTop-box.clientHeight<65;
+  var previousTop=box.scrollTop;
+  if(box.innerHTML!==fresh.innerHTML){
+    box.innerHTML=fresh.innerHTML;
+    box.scrollTop=wasBottom?box.scrollHeight:previousTop;
+  }
+}
 function openDm(cid){DMC=cid;LIDAS[cid]=Date.now();if(DB)savePriv("lidas",LIDAS).catch(function(){});
   Object.keys(SUB).forEach(function(k){if(k.indexOf("dm:")===0&&k!=="dm:"+cid){try{SUB[k]()}catch(e){}delete SUB[k]}});
-  if(DB)sub("dm:"+cid,DB.collection("conversas/"+cid+"/msgs").orderBy("ts","asc").limit(300),function(L){DMMSG[cid]=L;if(V==="mensagens"&&DMC===cid){LIDAS[cid]=Date.now()}});
+  if(DB)sub("dm:"+cid,DB.collection("conversas/"+cid+"/msgs").orderBy("ts","asc").limit(300),function(L){DMMSG[cid]=L;if(V==="mensagens"&&DMC===cid){LIDAS[cid]=Date.now();updateDmMessagesOnly()}});
   render()}
 ACT.dm=function(d){if(!canW(null,true))return;var al=dmAllowed(d.u);var cid=cidOf(UID,d.u);if(!al.ok&&!CONV.some(function(c){return c.id===cid})){toast(al.why);return}go("mensagens");openDm(cid)};
 ACT.dmopen=function(d){openDm(d.id)};
