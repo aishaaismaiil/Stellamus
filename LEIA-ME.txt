@@ -1,1 +1,5 @@
-Pacote de teste criado a partir do index(5).html enviado. Inclui correção de Início e ajustes visuais do chat. ATENÇÃO: config.js é um marcador e deve ser substituído pelo config.js existente no repositório antes de publicar. Ícones são substitutos temporários; use os originais do repositório. Não foi feito teste end-to-end nem publicação.
+Stellamus — pacote para validação local.
+Configuração Supabase e favicon restaurados da versão anterior do GitHub (commit 50cdef3).
+Ícones PNG regenerados a partir do favicon SVG original; não são os binários originais.
+Scripts inline verificados com node --check.
+NÃO PUBLICAR sem testar login, mensagens, início, traduções e dados.
