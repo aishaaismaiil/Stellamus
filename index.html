@@ -5,7 +5,25 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="description" content="Stellamus: a rede dos estudantes do ensino superior em Portugal. Avaliações de cursos, troca de skills, debates, comunidade e atividades.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="alternate icon" href="icon-192.png">
-<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}
+/* Stellamus mobile stability and accessible dark-mode contrast */
+html{overflow-x:clip;scroll-behavior:auto}body{overflow-x:clip;min-width:0}
+main,.mainwrap,.app{min-width:0}
+:root[data-theme="dark"] select,:root[data-theme="dark"] option,:root[data-theme="dark"] input,:root[data-theme="dark"] textarea{color:var(--ink);background-color:var(--surface)}
+:root[data-theme="dark"] .tag.w,:root[data-theme="dark"] .pend{color:#F6D88B;background:#342A16}
+:root[data-theme="dark"] .cl-old{color:#F6D88B!important}
+@media(max-width:820px){
+  .top{position:relative;top:auto;backdrop-filter:none}
+  .mainwrap{padding-top:1rem;padding-bottom:calc(5rem + env(safe-area-inset-bottom,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+  .panel,.banner,.stage{max-width:100%;min-width:0}
+  .fg,.grid2,.grid2e,.previews{min-width:0}
+  input,select,textarea{font-size:16px!important}
+  .btn,.chip,.topnav a{min-height:42px}
+  .topnav{overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+  .chat{max-height:55dvh}
+}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important}}
+</style>
 <title>Stellamus</title>
 <script>/* não deixar outros sites meterem o Stellamus dentro de uma moldura (clickjacking) */if(window.top!==window.self){try{window.top.location=window.self.location.href}catch(e){document.documentElement.style.display="none"}}</script>
 <link rel="manifest" href="manifest.webmanifest">
@@ -6611,7 +6629,7 @@ function meCard(){var of=MYP?tags(MYP.of):[],pr=MYP?tags(MYP.pr):[];if(!MYP||(!o
 function cutSec(h,start){var i=h.indexOf(start);if(i<0)return h;var re=/<\/?section\b/g;re.lastIndex=i;var d=0,m;while((m=re.exec(h))){if(m[0]==="<section")d++;else d--;if(d===0){var j=h.indexOf(">",m.index)+1;return h.slice(0,i)+h.slice(j)}}return h}
 var _rsk=RENDER.skills;RENDER.skills=function(){var h=_rsk.apply(this,arguments);if(MYP&&tags(MYP.of).length&&tags(MYP.pr).length)h=cutSec(h,'<section class="tex"');return afterHead(h,meCard())};
 /* manter a posição no ecrã quando a página se atualiza sozinha */
-(function(){var _r=render;render=function(top){var v=V,d=DET,y=window.scrollY;var out=_r.apply(this,arguments);if(!top&&V===v&&DET===d&&y>0&&Math.abs(window.scrollY-y)>1){window.scrollTo(0,y);requestAnimationFrame(function(){if(Math.abs(window.scrollY-y)>1)window.scrollTo(0,y)})}return out};window.render=render})();
+/* Scroll correction removed: render() already schedules updates and preserves form focus. */
 FORM.fhq=function(){var q=val("fh-q");F.cmpq=q;TAB.avaliacoes="comparar";go("avaliacoes",null,"comparar")};
 function pillars(){var P3=[["skills","#2BD4B4","Trocas de skills","Ensina o que sabes e aprende o que te falta, uma hora por uma hora. Quando aceitam, abrem uma sala com chamada, quadro e xadrez."],["atividades","#FFD27A","Explorar","Eventos, clubes e hobbies perto de ti, e quem mais tem interesse em ir."],["explorar","#7FB2FF","Cursos e mestrados","Compara cursos e mestrados lado a lado, com dados oficiais e a opinião de quem lá estuda."]];
   return'<section class="pil"><h3>'+esc(tx("O que podes fazer"))+'</h3><div class="pil-g">'+P3.map(function(x){return'<div class="pil-c" style="--c:'+x[1]+'"><span class="fh-ic">'+ico(x[0],22)+'</span><b>'+esc(tx(x[2]))+'</b><p>'+esc(tx(x[3]))+'</p></div>'}).join("")+'</div><p class="pil-more">'+esc(tx("E ainda: grupos, debates, diário de bordo e agenda, arrumados em «Mais»."))+'</p></section>'}
