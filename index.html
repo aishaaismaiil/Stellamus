@@ -694,13 +694,45 @@ html.anf-paused *,html.anf-paused *::after{animation-play-state:paused!important
   "use strict";
   var C=window.UO_CONFIG||{};
   var configured=!!(C.SUPABASE_URL&&C.SUPABASE_ANON_KEY&&!/COLA_AQUI/.test(C.SUPABASE_URL+C.SUPABASE_ANON_KEY));
-  var sb=null,session=null;
+  var sb=null,session=null,authError="";
+  var authUrl=new URL(location.href),query=authUrl.searchParams,fragment=new URLSearchParams(authUrl.hash.slice(1));
+  var authKeys=["access_token","refresh_token","provider_token","provider_refresh_token","expires_at","expires_in","token_type","type","token_hash","code","error","error_code","error_description"];
+  var hasReturn=["access_token","refresh_token","token_hash","code","error","error_code"].some(function(key){return query.has(key)||fragment.has(key)});
+  var pending=true;
+  var hosted=location.protocol==="https:"||(location.protocol==="http:"&&["localhost","127.0.0.1","[::1]"].includes(location.hostname));
   if(configured&&window.supabase&&window.supabase.createClient){
-    sb=window.supabase.createClient(C.SUPABASE_URL,C.SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true},realtime:{params:{eventsPerSecond:20}}});
+    sb=window.supabase.createClient(C.SUPABASE_URL,C.SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false},realtime:{params:{eventsPerSecond:20}}});
   }
   var booted=false,bootUid=null;
   function uidOf(x){return x&&x.user?x.user.id:null}
-  var ready=(sb?sb.auth.getSession().then(function(r){session=r&&r.data?r.data.session:null}).catch(function(){}):Promise.resolve()).then(function(){bootUid=uidOf(session);booted=true});
+  async function restoreSession(){
+    if(!sb)return;
+    if(hasReturn){
+      try{
+        var result,tokenHash=query.get("token_hash")||fragment.get("token_hash");
+        var kind=query.get("type")||fragment.get("type")||"email";
+        var code=query.get("code"),access=fragment.get("access_token"),refresh=fragment.get("refresh_token");
+        if(query.has("error")||fragment.has("error")||query.has("error_code")||fragment.has("error_code"))throw new Error("email-link");
+        if(access&&refresh)result=await sb.auth.setSession({access_token:access,refresh_token:refresh});
+        else if(tokenHash&&["email","signup","magiclink","invite"].includes(kind))result=await sb.auth.verifyOtp({token_hash:tokenHash,type:kind});
+        else if(code)result=await sb.auth.exchangeCodeForSession(code);
+        if(!result||result.error||!result.data||!result.data.session)throw new Error("email-link");
+        session=result.data.session;
+      }catch(e){authError="O link não confirmou a sessão. Pede um novo link e abre-o no mesmo navegador onde o pediste."}
+      finally{
+        authKeys.forEach(function(key){query.delete(key)});
+        if(authKeys.some(function(key){return fragment.has(key)}))authUrl.hash="";
+        try{history.replaceState(history.state,"",authUrl.pathname+authUrl.search+authUrl.hash)}catch(e){}
+      }
+    }
+    if(!session){
+      var saved=await sb.auth.getSession();
+      session=saved.data&&saved.data.session;
+    }
+  }
+  var ready=restoreSession().catch(function(){
+    authError="Não foi possível recuperar a sessão. Atualiza a página e tenta novamente.";
+  }).then(function(){pending=false;bootUid=uidOf(session);booted=true});
   /* Só recarrega se a conta mudar DEPOIS do arranque (ex.: entraste ou saíste noutra aba).
      Eventos do próprio arranque e de renovação do token não recarregam. */
   if(sb)sb.auth.onAuthStateChange(function(ev,s){session=s;if(!booted)return;var u=uidOf(s);if(u===bootUid)return;
@@ -793,8 +825,11 @@ html.anf-paused *,html.anf-paused *::after{animation-play-state:paused!important
     if(name==="room"){if(!roomInst)roomInst=makeRoom("lobby");return roomInst}
     return null})}};
   window.UO_AUTH={
-    configured:configured,
-    signIn:function(email){if(!sb)return Promise.reject(E("unavailable","Falta configurar o Supabase em config.js"));return sb.auth.signInWithOtp({email:email,options:{emailRedirectTo:location.origin+location.pathname}}).then(function(r){if(r.error)throw r.error})},
+    configured:!!sb,
+    hosted:hosted,
+    pending:function(){return pending},
+    error:function(){return authError},
+    signIn:function(email){if(!hosted)return Promise.reject(E("local-preview"));if(!sb)return Promise.reject(E("unavailable","Falta configurar o Supabase em config.js"));return sb.auth.signInWithOtp({email:email,options:{emailRedirectTo:location.origin+location.pathname}}).then(function(r){if(r.error)throw r.error})},
     signOut:function(){return sb?sb.auth.signOut():Promise.resolve()},
     email:function(){return session&&session.user?session.user.email:null}
   };
@@ -2048,8 +2083,8 @@ function dmAllowed(u){var p=P[u];if(!p||u===UID)return{ok:false,why:""};if(isBlo
 RENDER.mensagens=function(){
   var h=secHead(t("mensagens"),t("Mensagens"),esc(t("Conversas a dois com pessoas da Anfitriu.")));
   if(!DB)return h+lockedHTML("As mensagens");
-  if(!MYP)return h+emptyHTML(esc(t("Cria o perfil para poderes enviar e receber mensagens.")),'<button class="btn s" type="button" data-a="goto" data-v="espaco" data-t="perfil">'+esc(t("Criar perfil"))+'</button>');
-  var L=myConvs(),cur=DMC||(L[0]&&L[0].id),c=L.filter(function(x){return x.id===cur})[0];
+  var L=myConvs(),cur=DMC,c=L.filter(function(x){return x.id===cur})[0];
+  if(!L.length&&!cur)return h+'<p class="sm m">Ainda não tens mensagens.</p>';
   if(DMC&&!c){var other=DMC.split("__").filter(function(u){return u!==UID})[0];c={id:DMC,membros:[UID,other],novo:true}}
   var list='<div class="stack-s"><div class="olist" style="padding:.2rem .6rem">'+(L.length?L.map(function(x){var o=otherOf(x),un=x.lastUid&&x.lastUid!==UID&&(x.last||0)>(LIDAS[x.id]||0);return'<button class="who" type="button" data-a="dmopen" data-id="'+esc(x.id)+'" style="width:100%;background:'+(x.id===(c&&c.id)?"var(--surface2)":"none")+';border:0;border-bottom:1px solid var(--line);padding:.6rem .3rem;cursor:pointer;text-align:left;color:inherit;font:inherit">'+ident(o,36)+'<div style="flex:1"><b>'+esc(nameOf(o))+'</b><div class="xs m">'+esc(ago(x.last))+'</div></div>'+(un?'<span class="badge-n" style="background:var(--bad);color:#fff;border-radius:999px;padding:.1rem .45rem;font:600 .7rem var(--f-mono)">'+esc(t("nova"))+'</span>':'')+'</button>'}).join(""):'<p class="sm m" style="padding:.8rem 0">'+esc(t("Ainda sem conversas. Em Explorar › Pessoas, encontra quem tem coisas em comum contigo."))+'</p>')+'</div></div>';
   var pane="";
@@ -2059,14 +2094,20 @@ RENDER.mensagens=function(){
       (al.ok?'<form class="row" data-f="dm" data-id="'+esc(c.id)+'" data-u="'+esc(o)+'" style="flex-wrap:nowrap"><input class="fld" id="dm-txt" maxlength="1000" autocomplete="off" placeholder="'+esc(t("Escreve uma mensagem"))+'" aria-label="'+esc(t("Mensagem"))+'"><button class="btn" type="submit">'+esc(t("Enviar"))+'</button></form>':'<p class="note">'+esc(al.why)+'</p>')+
       '<p class="xs m">'+esc(t("As mensagens ficam guardadas na base de dados da Anfitriu e não são encriptadas. Não partilhes dados sensíveis."))+'</p></div>'}
   else pane=emptyHTML(esc(t("Escolhe uma conversa ou começa uma nova a partir do perfil de alguém.")));
-  return h+'<div class="grid2" style="grid-template-columns:minmax(0,1fr) minmax(0,1.8fr)"><div>'+list+'</div><div>'+pane+'</div></div>';
+  return h+'<div class="message-layout"><div>'+list+'</div><div>'+pane+'</div></div>';
 };
 function openDm(cid){DMC=cid;LIDAS[cid]=Date.now();if(DB)savePriv("lidas",LIDAS).catch(function(){});
   Object.keys(SUB).forEach(function(k){if(k.indexOf("dm:")===0&&k!=="dm:"+cid){try{SUB[k]()}catch(e){}delete SUB[k]}});
   if(DB)sub("dm:"+cid,DB.collection("conversas/"+cid+"/msgs").orderBy("ts","asc").limit(300),function(L){DMMSG[cid]=L;if(V==="mensagens"&&DMC===cid){LIDAS[cid]=Date.now()}});
   render()}
-ACT.dm=function(d){if(!canW(null,true))return;var al=dmAllowed(d.u);var cid=cidOf(UID,d.u);if(!al.ok&&!CONV.some(function(c){return c.id===cid})){toast(al.why);return}V="mensagens";DET=null;try{history.replaceState(null,"","#mensagens")}catch(e){}openDm(cid);render(true)};
+ACT.dm=function(d){if(!canW(null,true))return;var al=dmAllowed(d.u);var cid=cidOf(UID,d.u);if(!al.ok&&!CONV.some(function(c){return c.id===cid})){toast(al.why);return}go("mensagens");openDm(cid)};
 ACT.dmopen=function(d){openDm(d.id)};
+ACT.inbox=function(){
+ var conversations=myConvs();
+ go("mensagens");
+ var current=conversations.find(function(c){return c.id===DMC})||conversations[0];
+ if(current)openDm(current.id);
+};
 FORM.dm=function(f){var cid=f.getAttribute("data-id"),u=f.getAttribute("data-u"),x=val("dm-txt");if(!x||!canW(null,true))return;var al=dmAllowed(u);if(!al.ok){toast(al.why);return}
   $("dm-txt").value="";var now2=Date.now(),exists=CONV.some(function(c){return c.id===cid});
   (exists?DB.doc("conversas/"+cid).update({last:now2,lastUid:UID}):DB.doc("conversas/"+cid).set({membros:[UID,u].sort(),last:now2,lastUid:UID,ts:now2})).then(function(){return DB.collection("conversas/"+cid+"/msgs").add({uid:UID,txt:x,ts:now2})}).then(function(){LIDAS[cid]=now2;savePriv("lidas",LIDAS).catch(function(){})}).catch(fail())};
@@ -2381,7 +2422,7 @@ RENDER.sinais=function(){
   return h+'<div class="grid2"><div class="stack">'+(L.length?'<ul class="olist">'+L.map(function(x){var nw=x.ts>seen;return'<li style="'+(nw?'background:var(--surface2)':'')+'"><div class="who">'+ident(x.u,38)+'<div><button class="lnk" style="text-align:left;color:var(--ink);text-decoration:none;font-weight:'+(nw?700:500)+'" type="button" '+x.a+'>'+esc(x.txt)+'</button><div class="xs m">'+esc(t(SKIND[x.k]||""))+' · '+esc(ago(x.ts))+'</div></div></div><div class="r">'+(nw?'<span class="tag a">'+esc(t("novo"))+'</span>':'')+'</div></li>'}).join("")+'</ul>':emptyHTML(esc(t("Sem sinais por agora. Junta pessoas ao teu anfiteatro para saberes o que andam a fazer."))))+'</div>'+
    '<div class="stack"><div class="panel tight side-mod"><div class="ph"><span class="lbl">'+esc(t("O teu anfiteatro"))+'</span><span class="mono">'+orb.length+'</span></div>'+(pend.length?'<div class="stack-s">'+pend.map(function(o){return'<div class="row sb">'+whoHTML(o.de,30)+'<div class="row">'+orbitBtn(o.de)+'</div></div>'}).join("")+'</div><hr class="rule">':'')+(orb.length?'<div class="stack-s">'+orb.map(function(u){return'<div class="row sb">'+whoHTML(u,30)+msgBtn(u,"ghost s")+'</div>'}).join("")+'</div>':'<p class="sm m">'+esc(t("Ainda ninguém. Em Explorar › Pessoas encontras quem tem coisas em comum contigo."))+'</p>')+'</div></div></div>';
 };
-ACT.dmopen2=function(d){V="mensagens";DET=null;openDm(d.id);render(true)};
+ACT.dmopen2=function(d){go("mensagens");openDm(d.id)};
 
 /* ---------- diário de bordo ---------- */
 function diarCard(e,full){
@@ -3757,13 +3798,15 @@ ACT.cmpmore=function(){F.cmplim=(F.cmplim||30)+40;render()};
    ===================================================================== */
 OPEN.howjoin=true;
 function loginHTML(){
+  if(window.UO_AUTH&&UO_AUTH.pending())return '<p class="note" role="status">A confirmar a sessão…</p>';
+  if(window.UO_AUTH&&!UO_AUTH.hosted)return '<p class="note">Para receber e abrir um link de entrada, usa o endereço online do Stellamus. Nesta cópia podes explorar a apresentação.</p>';
   if(!window.UO_AUTH||!UO_AUTH.configured)return'<p class="note w">'+esc(t("O site ainda não está ligado à base de dados. Segue o guia de instalação para preencher o ficheiro config.js."))+'</p>';
-  return'<form class="panel" data-f="login" style="--sec:var(--c-mural)"><h3>'+esc(t("Entrar ou criar conta"))+'</h3><p class="sm m">'+esc(t("A conta é grátis. Escreve o teu email e enviamos-te um link para entrares sem palavra-passe."))+'</p><div class="row" style="flex-wrap:nowrap"><input class="fld" id="lg-email" type="email" autocomplete="email" required placeholder="nome@email.pt" aria-label="Email"><button class="btn" type="submit">'+esc(t("Enviar link"))+'</button></div><span class="msg" id="lg-msg"></span><p class="xs m">'+esc(t("Ao entrares, aceitas a"))+' <a href="privacidade.html">'+esc(t("política de privacidade e os termos"))+'</a>.</p></form>';
+  return(UO_AUTH.error()?'<p class="note" role="alert">'+esc(UO_AUTH.error())+'</p>':'')+'<form class="panel" data-f="login" style="--sec:var(--c-mural)"><h3>'+esc(t("Entrar ou criar conta"))+'</h3><p class="sm m">'+esc(t("A conta é grátis. Escreve o teu email e enviamos-te um link para entrares sem palavra-passe."))+'</p><div class="row" style="flex-wrap:nowrap"><input class="fld" id="lg-email" type="email" autocomplete="email" required placeholder="nome@email.pt" aria-label="Email"><button class="btn" type="submit">'+esc(t("Enviar link"))+'</button></div><span class="msg" id="lg-msg"></span><p class="xs m">'+esc(t("Ao entrares, aceitas a"))+' <a href="privacidade.html">'+esc(t("política de privacidade e os termos"))+'</a>.</p></form>';
 }
 var _landingS=landingHTML;
 landingHTML=function(){var h=_landingS();return h.replace(/<p class="note">[\s\S]*?<\/p>/,loginHTML()).replace(/<button class="btn sec" type="button" data-a="howjoin">[^<]*<\/button>/,'')};
 FORM.login=function(f){var m=$("lg-email").value.trim();if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)){setMsg("lg-msg",t("Escreve um email válido."),true);return}
-  setMsg("lg-msg",t("A enviar…"));UO_AUTH.signIn(m).then(function(){setMsg("lg-msg",t("Feito. Abre o email que te enviámos e carrega no link para entrar."))}).catch(function(e){setMsg("lg-msg",t("Não foi possível enviar o email. Tenta outra vez daqui a um minuto."),true)})};
+  setMsg("lg-msg",t("A enviar…"));UO_AUTH.signIn(m).then(function(){setMsg("lg-msg",t("Abre o link do email neste mesmo navegador. Quando o link for confirmado, aparece o teu Início."))}).catch(function(e){setMsg("lg-msg",t("Não foi possível enviar o email. Tenta outra vez daqui a um minuto."),true)})};
 var _privS=privHTML;
 privHTML=function(){return _privS()+'<div class="panel" style="margin-top:1rem"><h3>'+esc(t("Sessão"))+'</h3><p class="sm m">'+esc(t("Entraste como"))+' <b>'+esc((window.UO_AUTH&&UO_AUTH.email())||"")+'</b></p><div class="row"><button class="btn sec" type="button" data-a="signout">'+esc(t("Terminar sessão"))+'</button><a class="btn ghost" href="privacidade.html">'+esc(t("Política de privacidade"))+'</a></div></div>'};
 ACT.signout=function(){UO_AUTH.signOut().then(function(){location.reload()})};
@@ -3778,7 +3821,7 @@ drawChrome=function(){_chromeS();var f=document.querySelector("#rail .rail-foot"
  "política de privacidade e os termos":["privacy policy and terms","política de privacidad y los términos","Datenschutzerklärung und Bedingungen","politique de confidentialité et les conditions","informativa sulla privacy e i termini"],
  "Escreve um email válido.":["Enter a valid email.","Escribe un email válido.","Gib eine gültige E-Mail ein.","Écris un email valide.","Scrivi un'email valida."],
  "A enviar…":["Sending…","Enviando…","Wird gesendet…","Envoi…","Invio…"],
- "Feito. Abre o email que te enviámos e carrega no link para entrar.":["Done. Open the email we sent you and tap the link to sign in.","Hecho. Abre el email que te enviamos y pulsa el enlace para entrar.","Erledigt. Öffne die E-Mail und tippe auf den Link, um dich anzumelden.","C'est fait. Ouvre l'email reçu et touche le lien pour te connecter.","Fatto. Apri l'email che ti abbiamo inviato e tocca il link per entrare."],
+ "Abre o link do email neste mesmo navegador. Quando o link for confirmado, aparece o teu Início.":["Done. Open the email we sent you and tap the link to sign in.","Hecho. Abre el email que te enviamos y pulsa el enlace para entrar.","Erledigt. Öffne die E-Mail und tippe auf den Link, um dich anzumelden.","C'est fait. Ouvre l'email reçu et touche le lien pour te connecter.","Fatto. Apri l'email che ti abbiamo inviato e tocca il link per entrare."],
  "Não foi possível enviar o email. Tenta outra vez daqui a um minuto.":["Couldn't send the email. Try again in a minute.","No se pudo enviar el email. Inténtalo de nuevo en un minuto.","Die E-Mail konnte nicht gesendet werden. Versuch es in einer Minute noch einmal.","Impossible d'envoyer l'email. Réessaie dans une minute.","Impossibile inviare l'email. Riprova tra un minuto."],
  "Sessão":["Session","Sesión","Sitzung","Session","Sessione"],
  "Entraste como":["Signed in as","Has entrado como","Angemeldet als","Connecté·e en tant que","Accesso come"],
@@ -4810,17 +4853,19 @@ GROUPS.splice(0,GROUPS.length,
  {k:"inicio",n:"Início",ic:"inicio",c:"#92bbef",items:[["inicio","Início","Começar"]]},
  {k:"skills",n:"Trocas",ic:"skills",c:"#60cbb5",items:[["skills","Trocas","Ensinar e aprender"]]},
  {k:"uni",n:"Cursos e formação",short:"Formação",ic:"explorar",c:"#f5c970",items:[["explorar","Cursos e formação","Pesquisar e comparar"]]},
- {k:"com",n:"Comunidade",ic:"atividades",c:"#c2a6fb",items:[["mais","Comunidade","Debates e atividades"]]},
+ {k:"atividades",n:"Atividades",ic:"atividades",c:"#c2a6fb",items:[["atividades","Atividades","Workshops, hobbies e clubes"]]},
  {k:"agenda",n:"Agenda",ic:"agenda",c:"#ff9c80",items:[["agenda","Agenda","Os teus compromissos"]]}
 );
 var compactGo=go;
 go=function(v,det,tab){
+ if(v==="mais")v="atividades";
  if(v==="explorar"&&!det&&!tab)tab="prog";
  return compactGo(v,det,tab);
 };
 groupOf=function(v){
-  if(v==="explorar"&&curTab("explorar","prog")==="pessoas")return "com";
-  if(["agora","aovivo","atividades","comunidades","mural"].includes(v))return "com";
+  if(["mensagens","sinais"].includes(v)||(v==="explorar"&&curTab("explorar","prog")==="pessoas"))return "";
+  if(["agora","aovivo","mural"].includes(v))return "inicio";
+  if(["mais","atividades","comunidades"].includes(v))return "atividades";
   if(["avaliacoes","oportunidades"].includes(v))return "uni";
   if(v==="sala")return "skills";
   var group=GROUPS.find(function(g){return g.items[0][0]===v});
@@ -4846,13 +4891,10 @@ function railHTML(){var cg=groupOf(V),open=OPENG===null?cg:OPENG;
 var BELL='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20h4"></path></svg>';
 var MSG='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16v10H9l-5 4z"></path></svg>';
 function nb(n){return n?'<span class="nb">'+(n>9?"9+":n)+'</span>':''}
-function iconsHTML(withName){var m=cnt("mensagens"),s=cnt("sinais");
-  return'<button type="button" data-go="mensagens" aria-label="'+esc(t("Mensagens"))+(m?", "+m+" "+esc(t("novas")):"")+'" title="'+esc(t("Mensagens"))+'">'+MSG+nb(m)+'</button>'+
-   '<button type="button" data-go="sinais" aria-label="'+esc(t("Notificações"))+(s?", "+s+" "+esc(t("novas")):"")+'" title="'+esc(t("Notificações"))+'">'+BELL+nb(s)+'</button>'+
+function iconsHTML(){var m=cnt("mensagens"),s=DB?sinais().filter(function(item){return item.k!=="msg"&&item.ts>SINSEEN}).length:0;
+  return(DB&&myConvs().length?'<button type="button" data-a="inbox" aria-label="'+esc(t("Mensagens"))+(m?", "+m+" "+esc(t("novas")):"")+'" title="'+esc(t("Mensagens"))+'">'+MSG+nb(m)+'</button>':'')+
+   (DB?'<button type="button" data-go="sinais" aria-label="'+esc(t("Notificações"))+(s?", "+s+" "+esc(t("novas")):"")+'" title="'+esc(t("Notificações"))+'">'+BELL+nb(s)+'</button>':'')+
    (DB?'<button class="orbit-trigger" type="button" data-anfme="1" aria-label="Abrir a tua constelação" aria-haspopup="dialog" aria-expanded="'+(SHEET==="me")+'">'+ident(UID,28)+'</button>':'')}
-function ensureBar(){var mw=document.querySelector(".mainwrap");if(!mw)return;var b=document.getElementById("anfbar");
-  if(!b){b=document.createElement("div");b.id="anfbar";b.className="anfbar";mw.insertBefore(b,mw.firstChild)}
-  b.innerHTML=iconsHTML(true)}
 function tabsHTML2(){var cg=groupOf(V);
   return GROUPS.map(function(g){return g.k}).map(function(k){var g=GROUPS.filter(function(x){return x.k===k})[0],sum=k==="mais"?cnt("sinais"):g.items.reduce(function(a,it){return a+cnt(it[0])},0),cur=cg===k;
     return'<button type="button" class="'+(cur?'cur':'')+'" style="--c:'+g.c+'" data-go="'+g.items[0][0]+'" aria-pressed="'+cur+'"'+(cur?' aria-current="page"':'')+'><span class="ti">'+ico(g.ic,18)+'</span>'+esc(t(g.short||g.n))+(sum?'<span class="badge-n" style="position:absolute;margin:-30px 0 0 26px">'+sum+'</span>':'')+'</button>'}).join("")}
@@ -4876,8 +4918,8 @@ drawChrome=function(){_dcR();
   if(lsx("anf.mini")==="1")document.body.classList.add("anf-mini");
   try{var gc=GROUPS.filter(function(x){return x.k===groupOf(V)})[0];document.documentElement.style.setProperty("--sec",gc?gc.c:C.a)}catch(e){}
   var r=document.getElementById("rail");if(r)r.innerHTML=railHTML();
-  var tp=document.getElementById("top");if(tp){var row=tp.querySelector(".row1");if(row){var me=row.querySelector(".me");if(me)me.remove();if(!row.querySelector(".anfic")){var w=document.createElement("span");w.className="anfic anfbar";w.style.cssText="display:flex;margin:0;padding:0;position:static;gap:.3rem";row.appendChild(w)}row.querySelector(".anfic").innerHTML=iconsHTML(false)}}
-  ensureBar();ensureTabs();drawSheet()};
+  var tp=document.getElementById("top");if(tp){var row=tp.querySelector(".row1");if(row){row.querySelectorAll(".me,#langPick2").forEach(function(el){el.remove()});if(!row.querySelector(".anfic")){var w=document.createElement("span");w.className="anfic anfbar";w.style.cssText="display:flex;margin:0;padding:0;position:static;gap:.3rem";row.appendChild(w)}row.querySelector(".anfic").innerHTML=iconsHTML()}}
+  ensureTabs();drawSheet()};
 document.addEventListener("click",function(e){
   var g=e.target.closest&&e.target.closest("[data-anfg]");if(g){var k=g.getAttribute("data-anfg");
     if(document.body.classList.contains("anf-mini")){var gg=GROUPS.filter(function(x){return x.k===k})[0];SHEET=null;var it=gg.items[0];if(it[4]){ACT.goto({v:it[0],t:it[4]})}else go(it[0]);return}
@@ -5419,7 +5461,7 @@ RENDER.atividades=function(){
   if(DET&&DET.k==="ativ")return detailHTML(DET.id);
   var tb=curTab("atividades","explorar"),tabs=[["explorar","Descobrir"],["clubes","Clubes e grupos"],["planos","Os meus planos",(arr(ATME.interesse).length+SAVES.filter(function(s){return s.k.indexOf("ativ:")===0||s.k.indexOf("clube:")===0}).length)||null],["publicar","Publicar e gerir"]];
   if(OWNER)tabs.push(["validar","Por validar",pend().length]);
-  var h=secHead(t("explorar"),t("Explorar"),esc(t("Atividades, hobbies, experiências e convívio perto de ti. Sem notas nem currículo: só coisas boas para fazer.")))+tabsHTML("atividades",tabs);
+  var h=secHead(t("atividades"),t("Atividades"),esc(t("Descobre workshops, eventos, hobbies e clubes.")))+tabsHTML("atividades",tabs);
   if(tb==="clubes"&&window.anfClubesHTML)return h+window.anfClubesHTML();
   if(tb==="planos")return h+planosHTML()+(window.anfClubesSaved?window.anfClubesSaved():"");
   if(tb==="publicar")return h+minhasHTML();
@@ -5670,13 +5712,14 @@ var css=document.createElement("style");css.textContent=[
 '.cpoint{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;border-radius:14px;border:1px dashed rgba(255,255,255,.2);font-size:.88rem}',
 '.cfeed{max-width:820px}'
 ].join("\n");document.head.appendChild(css);
-function head(v){var cur=SUB.filter(function(x){return x[0]===v})[0];
-  return secHead(t("comunidade")+" / "+t(cur[3]),t("Comunidade"),esc(t(cur[2])))+
-   '<nav class="cnav" aria-label="'+esc(t("Comunidade"))+'">'+SUB.map(function(x){return'<button type="button" data-a="goto" data-v="'+x[0]+'"'+(x[0]===v?' aria-current="page"':'')+'>'+esc(t(x[0]==="comunidades"?"Grupos":x[1]))+'</button>'}).join("")+'</nav>'}
+function head(v){
+  return v==="mural"?secHead("publicações","Publicações","Perguntas, dicas e experiências de estudantes."):
+    secHead("atividades / grupos","Grupos de estudantes","Encontra pessoas para estudar juntas, praticar uma língua ou partilhar um interesse.");
+}
 function cutHead(h){/* tira o cabeçalho antigo (primeiro bloco .banner/.sec-head) */
   var a=h.search(/<div class="(banner|sec-head)"/);if(a!==0)return h;var re=/<(\/?)div\b[^>]*>/g,d=0,m;re.lastIndex=0;
   while((m=re.exec(h))){if(m[1])d--;else d++;if(d===0)return h.slice(re.lastIndex)}return h}
-["mural","comunidades","mensagens"].forEach(function(v){var o=RENDER[v];if(typeof o!=="function")return;
+["mural","comunidades"].forEach(function(v){var o=RENDER[v];if(typeof o!=="function")return;
   RENDER[v]=function(){if(v==="comunidades"&&DET&&DET.k==="com")return o.apply(this,arguments);
     var sm=window.sideModules,h;
     if(v==="mural"){sideModules=function(){return"§SIDE§"}}
@@ -5794,7 +5837,7 @@ if(typeof VDESC==="object")VDESC.sinais="Tudo o que precisa da tua atenção, nu
 RENDER.sinais=function(){
   var h=secHead(t("notificações"),t("Notificações"),esc(t("Tudo o que precisa da tua atenção, num só sítio: trocas, mensagens, pedidos para o anfiteatro e respostas.")));
   if(!DB)return h+lockedHTML("Os sinais");
-  var L0=sinais(),seen=SINSEEN;
+  var L0=sinais().filter(function(item){return item.k!=="msg"}),seen=SINSEEN;
   if(L0.length&&L0[0].ts>SINSEEN){setTimeout(function(){SINSEEN=Date.now();savePriv("sinais",{seen:SINSEEN}).catch(function(){});drawChrome()},1500)}
   var pend=ORB.filter(function(o){return o.para===UID&&o.estado==="pendente"});
   var items=pend.map(function(o){return'<li style="background:var(--surface2)"><div class="who">'+ident(o.de,38)+'<div><b>'+esc(t("{n} quer juntar-te ao anfiteatro.",{n:nameOf(o.de)}))+'</b><div class="xs m">'+esc(t("Pedido para o anfiteatro"))+'</div></div></div><div class="r row">'+orbitBtn(o.de)+'</div></li>'});
@@ -6406,7 +6449,7 @@ function socialUpdates(){
  return '<section class="panel stack-s"><h3>Decide comigo</h3><p class="sm m">Pede ajuda para uma decisão ou partilha uma experiência que possa ajudar alguém.</p><div class="row">'+
  homeQuestionButton("Fazer uma pergunta","")+homeQuestionButton("Só eu é que…","Só eu é que ")+homeQuestionButton("Entre A e B…","Entre estas duas opções, qual escolherias? ")+'</div></section>'+
  (OPEN.homequestion?questionComposer(true):"")+
- (feed||questionDemo)+jump("agora","Ver todos os debates")+
+ (feed||questionDemo)+'<div class="row social-links">'+jump("agora","Todos os debates")+jump("aovivo","Debates em direto")+jump("mural","Publicações")+'</div>'+
  '<section class="panel stack-s"><h3>Próximas atividades</h3>'+ (events.length?events.map(function(event){
   return '<article class="social-entry"><button type="button" class="lnk" data-a="ativ" data-id="'+esc(event.id)+'">'+esc(event.tit)+'</button><p class="sm m">'+esc([event.data,event.hora,event.cidade].filter(Boolean).join(" · "))+'</p></article>';
  }).join(""):activityDemo)+jump("atividades","Ver atividades e clubes")+'</section>';
@@ -6534,15 +6577,7 @@ lockedHTML=function(what){
   explorar:peopleDemo,espaco:peopleDemo};
  return visitorPreview(samples[V]||demoCard(esc(what),"Conteúdo disponível para membros.","Pré-visualização"));
 };
-RENDER.mais=function(){
- var events=window.AnfExplorar?AnfExplorar.all().slice(0,3):[];
- var eventsHTML=events.length?events.map(function(x){
-   return '<article class="panel tight"><h4>'+esc(x.tit)+'</h4><p class="sm m">'+esc([x.data,x.cidade].filter(Boolean).join(" · "))+'</p><button class="btn sec s" data-a="ativ" data-id="'+esc(x.id)+'" type="button">Ver atividade</button>'+(x.demo?' <span class="tag">Exemplo</span>':'')+'</article>';
- }).join(""):activityDemo;
- return secHead("comunidade","Comunidade","Encontra pessoas para fazer coisas em conjunto.")+
- '<section class="panel stack-s"><h3>Atividades e hobbies</h3>'+eventsHTML+
- '<div class="row">'+jump("atividades","Ver atividades")+'<button class="btn sec s" data-a="goto" data-v="atividades" data-t="clubes">Ver clubes</button>'+peopleJump()+'</div></section>';
-};
+RENDER.mais=function(){return RENDER.atividades()};
 FORM.decisionfollowup=function(form){
  var debate=byId(DEBS,form.dataset.id),message=$("decision-msg");
  if(!debate||debate.uid!==UID||!canW(message))return;
@@ -6614,6 +6649,7 @@ RENDER.explorar=function(){
 };
 var activityMessages={};
 var renderActivity=RENDER.atividades;
+ACT.workshops=function(){ACT.axclear();ACT.axcat({k:"workshop"});go("atividades",null,"explorar")};
 var subscribeActivity=openDetailSubs;
 openDetailSubs=function(){
  subscribeActivity();
@@ -6624,7 +6660,8 @@ openDetailSubs=function(){
 };
 RENDER.atividades=function(){
  var html=renderActivity();
- if(!DET||DET.k!=="ativ")return html;
+ if(!DET)return afterHead(html,'<section class="panel stack-s"><p class="sm m">Workshops com data marcada, eventos, hobbies e clubes. Para comparar cursos e formações, abre Formação.</p><div class="row"><button type="button" class="btn sec s" data-a="workshops">Ver workshops</button>'+jump("comunidades","Grupos de estudantes")+'</div></section>');
+ if(DET.k!=="ativ")return html;
  var id=DET.id, activity=window.AnfExplorar&&AnfExplorar.find(id);
  if(!activity)return html;
  var messages=(activityMessages[id]||[]).filter(visible).map(function(message){
@@ -6652,7 +6689,7 @@ var stories=[
  ["Troca uma hora por outra","Ensina inglês e aprende Excel. Experimenta a sala com quadro e chamada.",jump("skills","Ver trocas")],
  ["Escolhe o próximo curso","Filtra formações, compara opções e lê avaliações de estudantes.",'<button class="btn sec s" type="button" data-a="goto" data-v="explorar" data-t="prog">Explorar formação</button>'],
  ["Descobre bolsas e estágios","Vê oportunidades para estudar ou ganhar experiência.",jump("oportunidades","Ver oportunidades")],
- ["Participa na comunidade","Entra num debate ou descobre eventos, clubes e workshops.",jump("mais","Abrir comunidade")],
+ ["Encontra atividades","Descobre eventos, clubes, hobbies e workshops.",jump("atividades","Ver atividades")],
  ["Organiza a semana","Consulta os teus prazos e atividades na agenda.",jump("agenda","Abrir agenda")],
  ["Continua a conversa","Encontra as mensagens e notificações no topo do ecrã.",jump("mensagens","Abrir mensagens")+jump("sinais","Ver notificações")]
 ];
@@ -6763,7 +6800,19 @@ if("IntersectionObserver" in window){var io=new IntersectionObserver(function(es
 #top .global-search .sgbox{min-width:min(300px,75vw)}
 #rail .gsearch,#anfbar{display:none!important}
 #top .orbit-trigger{display:inline-grid;place-items:center;border:1px solid #9b85dc;box-shadow:inset 0 0 0 2px #9b85dc55;border-radius:50%;width:42px;height:42px;padding:4px}
-.anav .aic,.anftabs .ti{color:var(--c)!important}html.anf-light .anav .aic,html.anf-light .anftabs .ti{color:color-mix(in srgb,var(--c) 52%,#213048)!important}
+.anav .aic,.anftabs .ti{color:var(--c)!important}html.anf-light .anav .aic,html.anf-light .anftabs .ti{color:color-mix(in srgb,var(--c) 48%,#213048)!important}
+#top .row1>.anfic{display:flex!important;flex:0 0 auto;position:static!important;align-items:center;gap:5px;min-width:0}
+#top .anfic>button{position:relative!important;flex:0 0 38px;min-width:38px;width:38px;height:38px;margin:0}
+#top .anfic .nb{top:0;right:0;pointer-events:none}
+#top .global-search .fld{width:100%;min-width:0}
+#top .row1>.logo{flex:0 0 auto;margin-right:0}
+@media(max-width:360px){#top .row1{flex-wrap:wrap}#top .global-search{order:3;flex-basis:100%;max-width:none}}
+.anav .aone,.anftabs button{background:color-mix(in srgb,var(--c) 8%,transparent)!important;border:1px solid color-mix(in srgb,var(--c) 24%,transparent)}
+.anav .aone.cur,.anftabs button.cur{background:color-mix(in srgb,var(--c) 20%,transparent)!important;border-color:color-mix(in srgb,var(--c) 58%,transparent)}
+.anav .aone .aic,.anftabs button .ti{background:color-mix(in srgb,var(--c) 17%,transparent)!important}
+.message-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.8fr);gap:14px}
+@media(max-width:600px){.message-layout{grid-template-columns:minmax(0,1fr)}}
+
 .constellation-menu .si{width:100%;display:flex;align-items:center;gap:.6rem;text-align:left}
 @media(min-width:821px){.anfsheet.on{display:block;position:fixed;inset:0;z-index:70;background:#05081466}.constellation-menu{position:absolute;right:20px;top:70px;width:min(360px,90vw);max-height:75vh;overflow:auto;padding:16px;border-radius:16px;background:var(--surface);color:var(--ink);display:grid;gap:8px}.app{grid-template-rows:auto 1fr}.app>.top{display:block;grid-column:2;grid-row:1;position:sticky;top:0;z-index:40;padding:10px 20px;background:var(--surface)}.app>.rail{grid-column:1;grid-row:1/span 2}.app>.mainwrap{grid-column:2;grid-row:2}.top .topnav{display:none}}
 @media(max-width:700px){.social-home{grid-template-columns:minmax(0,1fr)}#top .row1>.logo b{display:none}#top .row1{gap:5px}}
