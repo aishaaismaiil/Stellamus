@@ -1144,14 +1144,92 @@ function unlocked(req,s,lv){s=s||myStats();lv=lv||lvlFromXp(xpOf(s));var a=achOf
 var xpWritten=0;
 function syncXp(){if(!DB||!MYP||WRITE===false)return;var x=xpOf(myStats());if(x!==MYP.xp&&Date.now()-xpWritten>8000){xpWritten=Date.now();DB.doc("perfis/"+UID).update({xp:x}).catch(function(){})}}
 
+function curatedOpportunity(b){
+ return {id:b.id,tit:b.tit,tipo:b.tipo,org:b.org,local:b.local,prazo:b.prazo,link:b.link,desc:b.d,cur:true};
+}
+function opportunitiesForComparison(){
+ return BOLSAS.map(curatedOpportunity).concat(OPOS.filter(function(o){return visible(o)&&!hiddenByRep(o)}));
+}
+function extraComparison(key){
+ var parts=String(key||"").split(":"), kind=parts[0], id=parts[1], item, fields, action;
+ if(kind==="opo"){
+   item=byId(opportunitiesForComparison(),id);
+   if(!item)return null;
+   fields={tipo:t(item.tipo),faculdade:item.cur?t(item.org||""):item.org,cidade:item.cur?t(item.local||""):item.local,
+     desc:item.cur?t(item.desc||""):item.desc,prazo:isDate(item.prazo)?fdate(dOf(item.prazo),{dateStyle:"medium"}):item.prazo,link:item.link};
+   action="opodetail";
+ }else if(kind==="ativ"){
+   item=window.AnfExplorar&&AnfExplorar.find(id);
+   if(!item||!visible(item)||(!item.demo&&item.estado!=="publicada"&&item.uid!==UID&&!OWNER))return null;
+   var category=AnfExplorar.cats.find(function(c){return c.k===item.cat});
+   fields={tipo:t(category?category.n:"Atividade"),faculdade:item.org,cidade:[item.cidade,item.local].filter(Boolean).join(" · "),
+     dist:item.dist,desc:item.desc,preco:item.preco==null?"":Number(item.preco)===0?t("Grátis"):item.preco+" €",
+     horario:[isDate(item.data)?fdate(dOf(item.data),{dateStyle:"medium"}):item.data,item.hora].filter(Boolean).join(" · "),link:item.demo?"":item.link};
+   action="ativ";
+ }else if(kind==="clube"){
+   item=window.stellamusClubs&&byId(stellamusClubs(),id);
+   if(!item)return null;
+   fields={tipo:t(item.tipo),desc:t(item.desc),cidade:t(item.cidade),dist:item.dist,preco:t(item.preco),horario:t(item.horario),link:item.link};
+   action="clubdetail";
+ }else return null;
+ return {k:key,name:item.cur?t(item.tit):item.tit,of:fields,R:revsFor(key),id:id,action:action,
+   na:{propina:1,taxaCandidatura:1,matricula:1,pagamentoInicial:1,earlyBird:1,processo:1}};
+}
+function extraComparisonPicker(query){
+ if(!query)return "";
+ var activities=window.AnfExplorar?AnfExplorar.all():[];
+ var clubs=window.stellamusClubs?stellamusClubs():[];
+ var keys=opportunitiesForComparison().map(function(o){return "opo:"+o.id})
+   .concat(activities.map(function(a){return "ativ:"+a.id}),clubs.map(function(c){return "clube:"+c.id}));
+ var entries=keys.map(extraComparison).filter(function(x){return x&&matchQ([x.name,x.of.tipo,x.of.faculdade,x.of.desc].join(" "),query)}).slice(0,15);
+ return entries.length?'<section class="panel stack-s"><h3>'+esc(t("Oportunidades e atividades"))+'</h3>'+entries.map(function(x){
+   return '<div class="row sb"><button class="lnk" type="button" data-a="'+x.action+'" data-id="'+esc(x.id)+'">'+esc(x.name)+'</button>'+cmpBtn(x.k)+'</div>';
+ }).join("")+'</section>':"";
+}
+function catalogDetail(key){
+ var x=extraComparison(key);
+ if(!x)return backBtn()+emptyHTML(esc(t("Sem resultados.")));
+ var o=x.of;
+ return backBtn()+secHead(t(o.tipo),x.name,esc(o.tipo),cmpBtn(key))+
+   '<section class="panel stack-s"><p class="pre wrap">'+esc(o.desc||t("a confirmar"))+'</p><p class="sm m">'+
+   esc([o.faculdade,o.cidade,o.horario,o.prazo,o.preco].filter(Boolean).join(" · "))+'</p>'+
+   (linkOut(o.link,t("Página oficial"))||'<p class="sm m">'+esc(t("Página oficial a confirmar"))+'</p>')+'</section>'+
+   catalogOpinions(key);
+}
+function catalogOpinions(key){
+ var reviews=revsFor(key);
+ return reviews.length?'<section class="stack-s"><h3>'+esc(t("Opiniões"))+'</h3>'+reviews.map(function(r){return revHTML(r)}).join("")+'</section>':"";
+}
+function opportunityDetail(id){return catalogDetail("opo:"+id)}
+function clubDetail(id){return catalogDetail("clube:"+id)}
+function initialRatingFields(prefix){
+ return '<div class="fg"><label class="f">'+esc(t("Avaliação geral (obrigatória)"))+'<select required class="fld" id="'+prefix+'-rating"><option value="">'+esc(t("Escolhe…"))+'</option>'+
+   [1,2,3,4,5].map(function(n){return '<option value="'+n+'">'+n+' / 5</option>'}).join("")+
+   '</select></label><label class="f">'+esc(t("Link oficial"))+'<input type="url" class="fld" id="'+prefix+'-link" maxlength="300" placeholder="https://"></label></div>';
+}
+function initialRating(prefix,message){
+ var nota=Number(val(prefix+"-rating")),link=val(prefix+"-link");
+ if(![1,2,3,4,5].includes(nota)){setMsg(message,t("Dá pelo menos a nota de experiência geral."),true);return null}
+ if(link&&!okUrl(link)){setMsg(message,t("O link tem de começar por https://"),true);return null}
+ return {nota:nota,link:link};
+}
+function profileOrbitButton(expanded){
+ var friends=DB?myOrbit().slice(0,4):[];
+ return '<button class="orbit-trigger" type="button" data-anfme="1" aria-label="'+esc(t("A tua constelação"))+
+   '" aria-haspopup="dialog" aria-expanded="'+expanded+'"><span class="orbit-mini" aria-hidden="true">'+
+   (friends.length?'<svg viewBox="0 0 54 42"><path d="M27 21L8 8M27 21L46 34'+(friends.length>2?'M27 21L46 8':'')+(friends.length>3?'M27 21L8 34':'')+'"/></svg>':"")+
+   '<span class="orbit-mini-me">'+ident(UID||"visita",23)+'</span>'+friends.map(function(u,i){
+     return '<span class="orbit-mini-friend pos'+i+'">'+ident(u,13)+'</span>';
+   }).join("")+'</span></button>';
+}
+
+
 /* ---------- navegação ---------- */
 var routeTrail=[], returningToRoute=false, returnScroll=null;
 function go(v,det,tab){
-  // Voltar apenas dentro das ramificações da mesma secção.
   if(!VIEWS.some(function(x){return x[0]===v}))v="inicio";
   if(!returningToRoute){
-    if(v!==V){routeTrail.length=0;}
-    else if(JSON.stringify(det||null)!==JSON.stringify(DET||null)||(tab&&tab!==TAB[v])){
+    if(v!==V||JSON.stringify(det||null)!==JSON.stringify(DET||null)||(tab&&tab!==TAB[v])){
       routeTrail.push({view:V,detail:DET,tab:TAB[V]||"",scroll:window.scrollY});
       if(routeTrail.length>40)routeTrail.shift();
     }
@@ -1165,7 +1243,7 @@ function go(v,det,tab){
   render(true);
 }
 function closeDetailSubs(){Object.keys(SUB).forEach(function(k){if(k.indexOf("d:")===0){try{SUB[k]()}catch(e){}delete SUB[k]}});if(LIVEROOM){try{LIVEROOM.leave()}catch(e){}LIVEROOM=null;LIVEPEERS=[]}}
-function sub(key,q,cb){if(SUB[key])return;try{SUB[key]=q.onSnapshot(function(s){cb(s.docs.map(function(d){var x=d.data();x.id=d.id;return x}));render()},function(){})}catch(e){}}
+function sub(key,q,cb){if(SUB[key])return;try{SUB[key]=q.onSnapshot(function(s){cb(s.docs.map(function(d){var x=d.data();x.id=d.id;return x}));if(key==="dm:"+DMC&&V==="mensagens"&&$("dmbox")?.dataset.thread===DMC)updateDmMessagesOnly();else render()},function(){})}catch(e){}}
 function openDetailSubs(){
   if(!DB||!DET)return;var id=DET.id;
   if(DET.k==="deb")sub("d:args",DB.collection("debates/"+id+"/args").orderBy("ts","asc").limit(500),function(L){ARGS[id]=L});
@@ -1184,26 +1262,22 @@ function render(top){if(top)rqTop=true;if(rq)return;rq=true;requestAnimationFram
 function doRender(toTop){
   // Não reconstruir toda a página enquanto alguém escreve uma mensagem.
   // Atualizar apenas a lista de mensagens evita saltos de scroll e do teclado.
-  if(!toTop&&V==="mensagens"&&DMC&&document.activeElement&&document.activeElement.id==="dm-txt"&&$("dmbox")){
-    updateDmMessagesOnly();
-    return;
-  }
   var main=$("main"),keep={},act=document.activeElement,aid=act&&main.contains(act)?act.id:null,sel=null,chats={};
   if(!toTop){main.querySelectorAll("input[id],textarea[id],select[id]").forEach(function(el){if(el.type==="file")return;keep[el.id]=el.type==="checkbox"||el.type==="radio"?{c:el.checked}:{v:el.value}});
     if(act&&aid&&act.selectionStart!=null)sel=[act.selectionStart,act.selectionEnd];
-    main.querySelectorAll("[data-keepscroll]").forEach(function(el){chats[el.id]={top:el.scrollTop,bottom:el.scrollHeight-el.scrollTop-el.clientHeight<40}});
+    main.querySelectorAll("[data-keepscroll]").forEach(function(el){chats[el.id]={thread:el.dataset.thread,top:el.scrollTop,bottom:el.scrollHeight-el.scrollTop-el.clientHeight<40}});
     main.querySelectorAll("details[id]").forEach(function(el){DOPEN[el.id]=el.open});}
   drawChrome();
   TXT={};ICSQ=[];
   var fn=RENDER[V]||RENDER.inicio;
   main.setAttribute("data-v",V);
-  main.innerHTML=fn();
+  main.innerHTML=fn()+((V==="avaliacoes"&&curTab(V,"recentes")==="comparar")?"":trayHTML());
   if(!toTop){Object.keys(keep).forEach(function(id){var el=$(id);if(!el||!main.contains(el))return;if("c"in keep[id])el.checked=keep[id].c;else if(el.getAttribute("data-fresh")!=="1")el.value=keep[id].v});
     if(aid){var el=$(aid);if(el){el.focus({preventScroll:true});if(sel&&el.setSelectionRange)try{el.setSelectionRange(sel[0],sel[1])}catch(e){}}}}
   main.querySelectorAll("details[id]").forEach(function(el){if(DOPEN[el.id])el.open=true});
   Object.keys(MSGS).forEach(function(id){var m=MSGS[id];if(Date.now()-m.ts>7000){delete MSGS[id];return}var el=$(id);if(el){el.textContent=m.s;el.classList.toggle("err",m.err)}});
-  main.querySelectorAll("[data-keepscroll]").forEach(function(el){var c=chats[el.id];if(!c||c.bottom)el.scrollTop=el.scrollHeight;else el.scrollTop=c.top});
-  if(routeTrail.some(function(r){return r.view===V})&&!main.querySelector('[data-a="back"]')){
+  main.querySelectorAll("[data-keepscroll]").forEach(function(el){var c=chats[el.id];if(!c||c.thread!==el.dataset.thread||c.bottom)el.scrollTop=el.scrollHeight;else el.scrollTop=c.top});
+  if((routeTrail.length||V!=="inicio")&&!main.querySelector('[data-a="back"]')){
     main.insertAdjacentHTML("afterbegin",'<div class="route-return">'+backBtn()+'</div>');
   }
   if(toTop){window.scrollTo(0,returnScroll===null?0:returnScroll);returnScroll=null}
@@ -1362,10 +1436,26 @@ function landingHTML(){
 
 /* ---------- EXPLORAR ---------- */
 function allInst(){return INST0.concat(INSTX.filter(visible).map(function(i){var x=Object.assign({},i);x.com=true;return x}))}
-function revsFor(alvo){return REVS.filter(function(r){return r.alvo===alvo&&visible(r)})}
+function revsFor(alvo){
+ var reviews=REVS.filter(function(r){return r.alvo===alvo&&visible(r)&&!hiddenByRep(r)});
+ var parts=String(alvo).split(":"), entry=parts[0]==="inst"?instById(parts[1]):parts[0]==="prog"?progById(parts[1]):null;
+ if(entry&&entry.uid&&visible(entry)&&[1,2,3,4,5].includes(entry.notaInicial)&&!reviews.some(function(r){return r.uid===entry.uid})){
+   reviews.push({alvo:alvo,uid:entry.uid,ts:entry.ts,notas:{geral:entry.notaInicial},rapida:true});
+ }
+ return reviews;
+}
 function scoreOf(alvo){var R=revsFor(alvo);return{n:R.length,g:avg(R.map(function(r){return obj(r.notas).geral}))}}
 function cmpBtn(alvo){var on=CMP.indexOf(alvo)>-1;return'<button class="btn sec s cmp" type="button" data-a="cmp" data-k="'+esc(alvo)+'" aria-pressed="'+on+'">'+esc(t(on?"A comparar":"Comparar"))+'</button>'}
-function trayHTML(){if(!CMP.length)return"";return'<div class="tray"><span class="sm">'+esc(t("{n} selecionados para comparar",{n:CMP.length}))+'</span><button class="btn s" type="button" data-a="goto" data-v="avaliacoes" data-t="comparar">'+esc(t("Ver comparação"))+'</button><button class="btn ghost s" style="color:var(--bg)" type="button" data-a="cmpclear">'+esc(t("Limpar"))+'</button></div>'}
+var comparisonMinimized=false;
+function trayHTML(){
+ if(!CMP.length){comparisonMinimized=false;return ""}
+ if(comparisonMinimized)return '<button class="btn sec s study-reopen" data-a="restorestudycompare" type="button">'+esc(t("Comparar"))+' ('+CMP.length+')</button>';
+ return '<aside class="panel study-selection" aria-label="'+esc(t("Ver comparação"))+'"><div class="row">'+
+ CMP.map(function(key){return '<button class="chip" data-a="cmp" data-k="'+esc(key)+'" type="button" aria-label="'+esc(t("Remover")+' '+targetName(key))+'">'+esc(targetName(key))+' ×</button>'}).join("")+
+ '</div><button class="btn s" data-a="viewstudycompare" type="button">'+esc(t("Ver comparação"))+' ('+CMP.length+')</button>'+
+ '<button type="button" class="btn ghost s study-close" data-a="minimizestudycompare" aria-label="'+esc(t("Ocultar comparação"))+'">×</button></aside>';
+}
+
 RENDER.explorar=function(){
   if(DET&&DET.k==="inst")return instDetail(DET.id);
   if(DET&&DET.k==="prog")return progDetail(DET.id);
@@ -1377,7 +1467,7 @@ RENDER.explorar=function(){
   if(tb==="inst")h+=instList(q);
   if(tb==="prog")h+=progList(q);
   if(tb==="pessoas")h+=peopleList(q);
-  return h+trayHTML();
+  return h;
 };
 function instList(q){
   var qq=norm(q),d=F.xdist||"",tp=F.xtipo||"";
@@ -1385,14 +1475,14 @@ function instList(q){
   var cnt={};allInst().forEach(function(i){cnt[i.dist]=(cnt[i.dist]||0)+1});
   return'<div class="fg"><select class="fld" id="xdist" data-flt="xdist" aria-label="'+esc(t("Distrito"))+'"><option value="">'+esc(t("Todos os distritos e ilhas"))+'</option>'+DIST.map(function(x){return'<option value="'+esc(x)+'"'+(d===x?" selected":"")+'>'+esc(x)+(cnt[x]?" ("+cnt[x]+")":"")+'</option>'}).join("")+'</select><select class="fld" id="xtipo" data-flt="xtipo" aria-label="'+esc(t("Tipo"))+'"><option value="">'+esc(t("Pública e privada"))+'</option>'+TIPOS_I.map(function(x){return'<option value="'+x+'"'+(tp===x?" selected":"")+'>'+esc(t(x))+'</option>'}).join("")+'</select></div>'+
    (list.length?'<ul class="inst-list">'+list.map(function(i){var s=scoreOf("inst:"+i.id);return'<li><div class="stack-s"><button class="lnk" style="text-align:left;color:var(--ink);text-decoration:none;font:600 1rem var(--f-body)" type="button" data-a="inst" data-id="'+esc(i.id)+'">'+esc(i.nome)+'</button><span class="xs m">'+esc(i.cidade)+' · '+esc(t(i.tipo))+(i.com?' · '+esc(t("adicionada pela comunidade")):'')+'</span></div><div class="score" title="'+esc(t("Experiência geral"))+'">'+f1(s.g)+'<small>'+esc(t("{n} aval.",{n:s.n}))+'</small></div>'+cmpBtn("inst:"+i.id)+'</li>'}).join("")+'</ul>':emptyHTML(esc(t("Nenhuma instituição com estes filtros."))))+
-   (DB?'<details class="panel tight" id="d-instadd"><summary class="sm" style="cursor:pointer;font-weight:600">'+esc(t("Falta uma instituição? Adiciona-a"))+'</summary><form class="stack-s" data-f="instadd" style="margin-top:.7rem"><div class="fg"><input class="fld" id="ia-nome" maxlength="90" required placeholder="'+esc(t("Nome oficial"))+'" aria-label="'+esc(t("Nome oficial"))+'"><input class="fld" id="ia-cid" maxlength="40" required placeholder="'+esc(t("Cidade"))+'" aria-label="'+esc(t("Cidade"))+'"><select class="fld" id="ia-dist" aria-label="'+esc(t("Distrito"))+'">'+DIST.map(function(x){return'<option>'+esc(x)+'</option>'}).join("")+'</select><select class="fld" id="ia-tipo" aria-label="'+esc(t("Tipo"))+'">'+TIPOS_I.map(function(x){return'<option value="'+x+'">'+esc(t(x))+'</option>'}).join("")+'</select></div><div class="row"><button class="btn s" type="submit">'+esc(t("Adicionar"))+'</button><span class="msg" id="ia-msg"></span></div></form></details>':'');
+   (DB?'<details class="panel tight" id="d-instadd"><summary class="sm" style="cursor:pointer;font-weight:600">'+esc(t("Falta uma instituição? Adiciona-a"))+'</summary><form class="stack-s" data-f="instadd" style="margin-top:.7rem"><div class="fg"><input class="fld" id="ia-nome" maxlength="90" required placeholder="'+esc(t("Nome oficial"))+'" aria-label="'+esc(t("Nome oficial"))+'"><input class="fld" id="ia-cid" maxlength="40" required placeholder="'+esc(t("Cidade"))+'" aria-label="'+esc(t("Cidade"))+'"><select class="fld" id="ia-dist" aria-label="'+esc(t("Distrito"))+'">'+DIST.map(function(x){return'<option>'+esc(x)+'</option>'}).join("")+'</select><select class="fld" id="ia-tipo" aria-label="'+esc(t("Tipo"))+'">'+TIPOS_I.map(function(x){return'<option value="'+x+'">'+esc(t(x))+'</option>'}).join("")+'</select></div>'+initialRatingFields("ia")+'<div class="row"><button class="btn s" type="submit">'+esc(t("Adicionar"))+'</button><span class="msg" id="ia-msg"></span></div></form></details>':'');
 }
 function progList(q){
   var qq=norm(q),nv=F.xniv||"";
   var list=PROGS.filter(visible).filter(function(p){var i=instById(p.inst);return(!qq||norm(p.nome+" "+(i?i.nome:"")+" "+(p.area||"")).indexOf(qq)>-1)&&(!nv||p.nivel===nv)});
   return chipsHTML("xniv",NIVEIS,nv)+
    (list.length?'<ul class="inst-list">'+list.map(function(p){var i=instById(p.inst),s=scoreOf("prog:"+p.id);return'<li><div class="stack-s"><button class="lnk" style="text-align:left;color:var(--ink);text-decoration:none;font:600 1rem var(--f-body)" type="button" data-a="prog" data-id="'+esc(p.id)+'">'+esc(p.nome)+'</button><span class="xs m">'+esc(t(p.nivel||""))+' · '+esc(i?i.nome:"")+'</span></div><div class="score">'+f1(s.g)+'<small>'+esc(t("{n} aval.",{n:s.n}))+'</small></div>'+cmpBtn("prog:"+p.id)+'</li>'}).join("")+'</ul>':emptyHTML(esc(t(DB?"Ainda não há cursos nesta lista. Adiciona o teu e ajuda quem vem a seguir.":"Os cursos são adicionados pelos membros."))))+
-   (DB?'<form class="panel tight" data-f="progadd"><span class="lbl">'+esc(t("Adicionar curso, mestrado ou unidade curricular"))+'</span><div class="fg"><select class="fld" id="pa-inst" required aria-label="'+esc(t("Instituição"))+'"><option value="">'+esc(t("Instituição"))+'</option>'+allInst().map(function(i){return'<option value="'+esc(i.id)+'">'+esc(i.nome)+'</option>'}).join("")+'</select><select class="fld" id="pa-niv" aria-label="'+esc(t("Nível"))+'">'+NIVEIS.map(function(x){return'<option value="'+esc(x)+'">'+esc(t(x))+'</option>'}).join("")+'</select><input class="fld" id="pa-nome" maxlength="110" required placeholder="'+esc(t("Nome, como aparece no site oficial"))+'" aria-label="'+esc(t("Nome"))+'"><input class="fld" id="pa-area" maxlength="60" placeholder="'+esc(t("Área (ex.: Psicologia)"))+'" aria-label="'+esc(t("Área"))+'"></div><p class="xs m">'+esc(t("Os dados oficiais ficam “a confirmar” até a equipa os verificar."))+'</p><div class="row"><button class="btn s" type="submit">'+esc(t("Adicionar"))+'</button><span class="msg" id="pa-msg"></span></div></form>':'');
+   (DB?'<form class="panel tight" data-f="progadd"><span class="lbl">'+esc(t("Adicionar curso, mestrado ou unidade curricular"))+'</span><div class="fg"><select class="fld" id="pa-inst" required aria-label="'+esc(t("Instituição"))+'"><option value="">'+esc(t("Instituição"))+'</option>'+allInst().map(function(i){return'<option value="'+esc(i.id)+'">'+esc(i.nome)+'</option>'}).join("")+'</select><select class="fld" id="pa-niv" aria-label="'+esc(t("Nível"))+'">'+NIVEIS.map(function(x){return'<option value="'+esc(x)+'">'+esc(t(x))+'</option>'}).join("")+'</select><input class="fld" id="pa-nome" maxlength="110" required placeholder="'+esc(t("Nome, como aparece no site oficial"))+'" aria-label="'+esc(t("Nome"))+'"><input class="fld" id="pa-area" maxlength="60" placeholder="'+esc(t("Área (ex.: Psicologia)"))+'" aria-label="'+esc(t("Área"))+'"></div>'+initialRatingFields("pa")+'<p class="xs m">'+esc(t("Os dados oficiais ficam “a confirmar” até a equipa os verificar."))+'</p><div class="row"><button class="btn s" type="submit">'+esc(t("Adicionar"))+'</button><span class="msg" id="pa-msg"></span></div></form>':'');
 }
 var PEOPLE_FIELDS=[
  ["pcourse","Estudou","Psicologia"],
@@ -1434,7 +1524,7 @@ function revHTML(r,showTarget){
     '<div class="row" style="gap:.4rem"><span class="tag w" title="'+esc(t("Ainda não verificamos matrículas."))+'">'+esc(t("Não verificado"))+'</span><span class="xs m">'+esc(ago(r.ts))+'</span></div>'+
     '<div class="acts"><button class="btn ghost" type="button" data-a="revutil" data-id="'+esc(r.id)+'" aria-pressed="'+(u.indexOf(UID)>-1)+'"'+(r.uid===UID?" disabled":"")+'>'+esc(t("Útil"))+' <span class="num">'+u.length+'</span></button>'+saveBtn("rev:"+r.id)+trBtn("v"+r.id,r.txt)+reportHTML("avaliacoes/"+r.id,r)+'</div></article>';
 }
-function targetName(alvo){var p=String(alvo||"").split(":");if(p[0]==="inst"){var i=instById(p[1]);return i?i.nome:""}var g=PROGS.filter(function(x){return x.id===p[1]})[0];if(!g)return"";var ii=instById(g.inst);return [g.nome,programProvider(g,ii),programLocation(g,ii)].filter(Boolean).join(" · ")}
+function targetName(alvo){var extra=extraComparison(alvo);if(extra)return extra.name;var p=String(alvo||"").split(":");if(p[0]==="inst"){var i=instById(p[1]);return i?i.nome:""}var g=PROGS.filter(function(x){return x.id===p[1]})[0];if(!g)return"";var ii=instById(g.inst);return [g.nome,programProvider(g,ii),programLocation(g,ii)].filter(Boolean).join(" · ")}
 function revSection(alvo){
   var R=revsFor(alvo),sort=F.rsort||"util";
   R=R.slice().sort(sort==="util"?function(a,b){return arr(b.util).length-arr(a.util).length||b.ts-a.ts}:function(a,b){return b.ts-a.ts});
@@ -1445,24 +1535,24 @@ function officialHTML(rows,note){return'<section class="panel"><div class="ph"><
 function instDetail(id){
   var i=instById(id);if(!i)return backBtn()+emptyHTML(esc(t("Esta instituição já não existe.")));
   var s=scoreOf("inst:"+id),progs=progsOf(id).sort(function(a,b){return a.nome.localeCompare(b.nome,"pt")}),qs=POSTS.filter(function(p){return p.inst===id&&p.tipo==="Pergunta"&&visible(p)});
-  var rows=[["Tipo",esc(t(i.tipo))],["Cidade",esc(i.cidade)],["Distrito ou região",esc(i.dist)]];
+  var rows=[["Tipo",esc(t(i.tipo))],["Cidade",esc(i.cidade)],["Distrito ou região",esc(i.dist)],["Página oficial",linkOut(i.link,t("Página oficial"))]];
   if(MESTRADOS_PSI[id])rows.push(["Mestrados em Psicologia: candidaturas",""],["Mestrados em Psicologia: propina anual",""],["Mestrados em Psicologia: vagas",""]);
   return backBtn()+'<div class="sec-head"><p class="crumb">stellamus / '+esc(t("explorar"))+' / <b>'+esc(i.nome)+'</b></p><div class="row sb"><h2>'+esc(i.nome)+'</h2><div class="row">'+followBtn("inst",id)+cmpBtn("inst:"+id)+saveBtn("inst:"+id)+askAbout("inst:"+id)+'</div></div><p class="lead">'+esc(i.cidade)+' · '+esc(t(i.tipo))+(i.com?' · '+esc(t("adicionada pela comunidade")):'')+'</p></div>'+
    '<div class="grid2"><div class="stack">'+revSection("inst:"+id)+
    '<section class="stack"><div class="ph"><h3>'+esc(t("Perguntas sobre esta instituição"))+'</h3></div>'+(DB?'<form class="row" data-f="askinst" data-id="'+esc(id)+'" style="flex-wrap:nowrap"><input class="fld" id="aq-'+esc(id)+'" maxlength="500" placeholder="'+esc(t("Pergunta algo a quem lá estuda"))+'" aria-label="'+esc(t("Pergunta"))+'"><button class="btn s" type="submit">'+esc(t("Perguntar"))+'</button></form>':'')+(qs.length?'<ul class="feed">'+qs.map(postHTML).join("")+'</ul>':'<p class="sm m">'+esc(t("Ainda sem perguntas."))+'</p>')+'</section></div>'+
    '<div class="stack"><div class="panel tight"><span class="lbl">'+esc(t("Experiência geral"))+'</span><div class="score" style="font-size:2.2rem">'+f1(s.g)+'<small>/5 · '+esc(t("{n} aval.",{n:s.n}))+'</small></div></div>'+officialHTML(rows,esc(t("Os dados oficiais só passam a confirmados depois de verificados no site da instituição.")))+
-   institutionAdmissions(i,progs)+'<section class="panel tight"><div class="ph"><h3>'+esc(t("Cursos"))+'</h3><button class="lnk sm" type="button" data-a="goto" data-v="explorar" data-t="prog">'+esc(t("Adicionar"))+'</button></div>'+(progs.length?'<ul class="stack-s" style="list-style:none;margin:0;padding:0">'+progs.map(function(p){var sc=scoreOf("prog:"+p.id);return'<li class="row sb"><button class="lnk" style="text-align:left" type="button" data-a="prog" data-id="'+esc(p.id)+'">'+esc(p.nome)+'</button><span class="mono m">'+f1(sc.g)+'</span></li>'}).join("")+'</ul>':'<p class="sm m">'+esc(t("Nenhum curso adicionado ainda."))+'</p>')+'</section></div></div>'+trayHTML();
+   institutionAdmissions(i,progs)+'<section class="panel tight"><div class="ph"><h3>'+esc(t("Cursos"))+'</h3><button class="lnk sm" type="button" data-a="goto" data-v="explorar" data-t="prog">'+esc(t("Adicionar"))+'</button></div>'+(progs.length?'<ul class="stack-s" style="list-style:none;margin:0;padding:0">'+progs.map(function(p){var sc=scoreOf("prog:"+p.id);return'<li class="row sb"><button class="lnk" style="text-align:left" type="button" data-a="prog" data-id="'+esc(p.id)+'">'+esc(p.nome)+'</button><span class="mono m">'+f1(sc.g)+'</span></li>'}).join("")+'</ul>':'<p class="sm m">'+esc(t("Nenhum curso adicionado ainda."))+'</p>')+'</section></div></div>';
 }
 function institutionAdmissions(institution, programs){
  var cards=programs.map(function(program){
    var data=programPublishedData(program,institution);
-   var fields=[["prazo","Candidaturas"],["propina","Propina"]].concat(ADMISSION_FIELDS);
+   var fields=[["prazo","Candidaturas"],["propina","Propina"],["processo","Processo de candidatura"]].concat(ADMISSION_FIELDS);
    var rows=fields.filter(function(field){return data[field[0]]}).map(function(field){
-     return '<dt>'+esc(field[1])+'</dt><dd>'+esc(data[field[0]])+'</dd>';
+     return '<dt>'+esc(t(field[1]))+'</dt><dd>'+esc(t(data[field[0]]))+'</dd>';
    }).join("");
    return rows?'<details class="panel tight"><summary>'+esc(program.nome+" · "+program.nivel)+'</summary><dl class="admission-data">'+rows+'</dl>'+programSources(program,data)+'</details>':"";
  }).filter(Boolean);
- return cards.length?'<section class="stack-s"><h3>Candidaturas e custos por curso</h3>'+cards.slice(0,6).join("")+'</section>':"";
+ return cards.length?'<section class="stack-s"><h3>'+esc(t("Candidaturas e custos por curso"))+'</h3>'+cards.slice(0,6).join("")+'</section>':"";
 }
 function progDetail(id){
   var p=PROGS.filter(function(x){return x.id===id})[0];if(!p)return backBtn()+emptyHTML(esc(t("Este curso já não existe.")));
@@ -1471,10 +1561,10 @@ function progDetail(id){
   var dg=p.dg||{};
   if(p.nivel==="Licenciatura"||p.nivel==="Mestrado integrado")rows.push(["Último colocado · 1.ª fase 2025",esc(dg.ult||"")]);
   rows=rows.concat(OFICIAL.filter(function(field){return field[0]!=="link"}).concat(ADMISSION_FIELDS).map(function(field){return [field[1],esc(of[field[0]]||"")]}));
-  rows.push(["Fontes do curso",programSources(p,of)]);
+  rows.push(["Processo de candidatura",esc(t(of.processo||""))],["Fontes do curso",programSources(p,of)]);
   var edit=OWNER?'<details class="panel tight" id="d-oficial"><summary class="sm" style="cursor:pointer;font-weight:600">'+esc(t("Editar dados oficiais (equipa)"))+'</summary><form class="stack-s" data-f="oficial" data-id="'+esc(id)+'" style="margin-top:.6rem">'+OFICIAL.map(function(o){return'<label class="f">'+esc(t(o[1]))+'<input class="fld" id="of-'+o[0]+'" maxlength="300" value="'+esc(of[o[0]]||"")+'"></label>'}).join("")+'<label class="f">'+esc(t("Verificado em"))+'<input class="fld" type="date" id="of-verif" value="'+esc(p.verif||"")+'"></label><div class="row"><button class="btn s" type="submit">'+esc(t("Guardar dados oficiais"))+'</button><span class="msg" id="of-msg"></span></div></form></details>':'';
   return backBtn()+'<div class="sec-head"><p class="crumb">stellamus / '+esc(t("explorar"))+' / <b>'+esc(p.nome)+'</b></p><div class="row sb"><h2>'+esc(p.nome)+'</h2><div class="row">'+cmpBtn("prog:"+id)+saveBtn("prog:"+id)+askAbout("prog:"+id)+'</div></div><p class="lead">'+esc(t(p.nivel||""))+(i?' · <button class="lnk" type="button" data-a="inst" data-id="'+esc(i.id)+'">'+esc(i.nome)+'</button>':'')+(p.area?' · '+esc(p.area):'')+'</p><p class="xs m">'+esc(t("Adicionado por"))+' '+esc(nameOf(p.uid))+'</p></div>'+
-   '<div class="grid2"><div class="stack">'+revSection("prog:"+id)+'</div><div class="stack"><div class="panel tight"><span class="lbl">'+esc(t("Experiência geral"))+'</span><div class="score" style="font-size:2.2rem">'+f1(s.g)+'<small>/5 · '+esc(t("{n} aval.",{n:s.n}))+'</small></div></div>'+officialHTML(rows,p.verif?esc(t("Verificado pela equipa em {d}.",{d:fdate(dOf(p.verif),{day:"numeric",month:"long",year:"numeric"})})):esc(t("Ainda não verificado pela equipa. Confirma sempre no site oficial.")))+edit+'</div></div>'+trayHTML();
+   '<div class="grid2"><div class="stack">'+revSection("prog:"+id)+'</div><div class="stack"><div class="panel tight"><span class="lbl">'+esc(t("Experiência geral"))+'</span><div class="score" style="font-size:2.2rem">'+f1(s.g)+'<small>/5 · '+esc(t("{n} aval.",{n:s.n}))+'</small></div></div>'+officialHTML(rows,p.verif?esc(t("Verificado pela equipa em {d}.",{d:fdate(dOf(p.verif),{day:"numeric",month:"long",year:"numeric"})})):esc(t("Ainda não verificado pela equipa. Confirma sempre no site oficial.")))+edit+'</div></div>';
 }
 
 /* ---------- AVALIAÇÕES ---------- */
@@ -1487,7 +1577,7 @@ RENDER.avaliacoes=function(){
     var R=REVS.filter(visible).slice().sort(function(a,b){return b.ts-a.ts}).slice(0,40);
     h+=R.length?R.map(function(r){return revHTML(r,true)}).join(""):emptyHTML(esc(t("Ainda ninguém avaliou. Sê a primeira pessoa.")),'<button class="btn s" type="button" data-a="tab" data-v="avaliacoes" data-t="escrever">'+esc(t("Escrever avaliação"))+'</button>');}
   if(tb==="escrever")h+=revForm();
-  if(tb==="comparar")h+=compareHTML();
+  if(tb==="comparar")h+='<div class="row sb"><h3>'+esc(t("Comparar lado a lado"))+'</h3><button type="button" class="btn ghost s" data-a="closecomparison" aria-label="'+esc(t("Ocultar comparação"))+'">×</button></div>'+compareHTML();
   return h;
 };
 function revForm(){
@@ -1687,15 +1777,16 @@ function trocasHTML(){
 
 /* ---------- OPORTUNIDADES ---------- */
 RENDER.oportunidades=function(){
+  if(DET&&DET.k==="opo")return opportunityDetail(DET.id);
   var tb=curTab("oportunidades","opo");
   var h=secHead(t("oportunidades"),t("Oportunidades"),esc(t("Bolsas, estágios, investigação, voluntariado, concursos e trabalho para estudantes.")))+'';
   var ty=F.otype||"",q=norm(F.oq||""),onlyS=F.osav;
-  var cur=BOLSAS.map(function(b){return{id:b.id,tit:b.tit,tipo:b.tipo,org:b.org,local:t(b.local),prazo:b.prazo,link:b.link,desc:b.d,cur:true}});
+  var cur=BOLSAS.map(curatedOpportunity);
   var list=cur.concat(OPOS.filter(visible)).filter(function(o){return(!ty||o.tipo===ty)&&(!q||norm(o.tit+" "+(o.org||"")+" "+(o.desc||"")+" "+(o.local||"")).indexOf(q)>-1)&&(!onlyS||saved("opo:"+o.id))}).sort(function(a,b){var pa=isDate(a.prazo)?a.prazo:"9999",pb=isDate(b.prazo)?b.prazo:"9999";return pa.localeCompare(pb)});
   h+='<div class="row sb"><input class="fld" id="oq" type="search" data-flt="oq" value="'+esc(F.oq||"")+'" style="max-width:420px" placeholder="'+esc(t("Procurar por área, organização ou local"))+'" aria-label="'+esc(t("Procurar oportunidades"))+'"><div class="row">'+(DB?'<button class="chip" type="button" data-a="flt" data-f="osav" data-val="'+(onlyS?"":"1")+'" aria-pressed="'+!!onlyS+'">'+esc(t("Guardadas"))+'</button><button class="btn" type="button" data-a="toggle" data-k="newopo">'+esc(t("Partilhar oportunidade"))+'</button>':'')+'</div></div>'+chipsHTML("otype",OTYPES,ty);
   if(OPEN.newopo)h+='<form class="panel" data-f="opo"><div class="fg"><label class="f">'+esc(t("Título"))+'<input class="fld" id="op-tit" maxlength="120" required></label><label class="f">'+esc(t("Tipo"))+'<select class="fld" id="op-tipo">'+OTYPES.map(function(o){return'<option value="'+esc(o)+'">'+esc(t(o))+'</option>'}).join("")+'</select></label><label class="f">'+esc(t("Organização"))+'<input class="fld" id="op-org" maxlength="80"></label><label class="f">'+esc(t("Local ou remoto"))+'<input class="fld" id="op-local" maxlength="80"></label><label class="f">'+esc(t("Prazo"))+'<input class="fld" id="op-prazo" type="date"></label><label class="f">'+esc(t("Link oficial"))+'<input class="fld" id="op-link" maxlength="300" placeholder="https://"></label></div><label class="f">'+esc(t("Descrição"))+'<textarea class="fld" id="op-desc" rows="3" maxlength="1200"></textarea></label><div class="row"><button class="btn" type="submit">'+esc(t("Partilhar"))+'</button><button class="btn ghost" type="button" data-a="toggle" data-k="newopo">'+esc(t("Cancelar"))+'</button><span class="msg" id="op-msg"></span></div></form>';
   h+=list.length?'<ul class="olist">'+list.map(function(o){if(hiddenByRep(o))return'<li>'+hiddenHTML(o)+'</li>';var ev=isDate(o.prazo)?{titulo:t("Prazo")+": "+o.tit,data:o.prazo,desc:o.link||"",id:o.id}:null;
-    return'<li><div class="stack-s"><div class="row" style="gap:.35rem"><span class="tag v">'+esc(t(o.tipo))+'</span>'+(o.cur?'<span class="tag">'+esc(t("Curadoria Anfitriu"))+'</span>':'<span class="tag">'+esc(t("Partilhada por"))+' '+esc(nameOf(o.uid))+'</span>')+'</div><h3 class="wrap">'+esc(o.cur?t(o.tit):o.tit)+'</h3><span class="xs m">'+esc([o.cur?t(o.org||""):o.org,o.local].filter(Boolean).join(" · "))+'</span>'+(o.desc?'<p class="sm wrap">'+esc(o.cur?t(o.desc):trText("o"+o.id,o.desc))+'</p>':'')+(o.link?'<span class="sm">'+linkOut(o.link,t("Página oficial"))+'</span>':'')+'<div class="acts">'+saveBtn("opo:"+o.id)+(o.cur?'':trBtn("o"+o.id,o.desc)+reportHTML("oportunidades/"+o.id,o))+'</div></div><div class="r"><span class="lbl">'+esc(t("Prazo"))+'</span>'+(isDate(o.prazo)?'<b class="mono">'+esc(fdate(dOf(o.prazo),{day:"numeric",month:"short",year:"numeric"}))+'</b><div class="row" style="gap:.3rem;justify-content:flex-end">'+calBtns(ev,icsReg(ev))+'</div>':'<span class="pend">'+esc(t("a confirmar"))+'</span>')+'</div></li>'}).join("")+'</ul>':emptyHTML(esc(t("Nenhuma oportunidade com estes filtros.")));
+    return'<li><div class="stack-s"><div class="row" style="gap:.35rem"><span class="tag v">'+esc(t(o.tipo))+'</span>'+(o.cur?'<span class="tag">'+esc(t("Curadoria Anfitriu"))+'</span>':'<span class="tag">'+esc(t("Partilhada por"))+' '+esc(nameOf(o.uid))+'</span>')+'</div><h3 class="wrap"><button type="button" class="lnk" data-a="opodetail" data-id="'+esc(o.id)+'">'+esc(o.cur?t(o.tit):o.tit)+'</button></h3><span class="xs m">'+esc([o.cur?t(o.org||""):o.org,o.local].filter(Boolean).join(" · "))+'</span>'+(o.desc?'<p class="sm wrap">'+esc(o.cur?t(o.desc):trText("o"+o.id,o.desc))+'</p>':'')+(o.link?'<span class="sm">'+linkOut(o.link,t("Página oficial"))+'</span>':'')+'<div class="acts">'+cmpBtn("opo:"+o.id)+saveBtn("opo:"+o.id)+(o.cur?'':trBtn("o"+o.id,o.desc)+reportHTML("oportunidades/"+o.id,o))+'</div></div><div class="r"><span class="lbl">'+esc(t("Prazo"))+'</span>'+(isDate(o.prazo)?'<b class="mono">'+esc(fdate(dOf(o.prazo),{day:"numeric",month:"short",year:"numeric"}))+'</b><div class="row" style="gap:.3rem;justify-content:flex-end">'+calBtns(ev,icsReg(ev))+'</div>':'<span class="pend">'+esc(t("a confirmar"))+'</span>')+'</div></li>'}).join("")+'</ul>':emptyHTML(esc(t("Nenhuma oportunidade com estes filtros.")));
   return h;
 };
 function skillsHTML(){
@@ -1835,10 +1926,10 @@ function val(id){var e=$(id);return e?String(e.value||"").trim():""}
 
 var ACT={
  goto:function(d){go(d.v,null,d.t)},
- tab:function(d){TAB[d.v]=d.t;if(d.v===V&&DET){closeDetailSubs();DET=null}render(true)},
+ tab:function(d){go(d.v,null,d.t)},
  back:function(){
    var previous=routeTrail.pop();
-    if(!previous||previous.view!==V){routeTrail.length=0;closeDetailSubs();DET=null;render(true);return}
+    if(!previous){returningToRoute=true;try{go(DET?V:"inicio")}finally{returningToRoute=false}return}
    returningToRoute=true;returnScroll=previous.scroll;
    try{TAB[previous.view]=previous.tab;go(previous.view,previous.detail,previous.tab||undefined)}
    finally{returningToRoute=false}
@@ -1878,7 +1969,7 @@ var ACT={
  thread:function(d){var k="p:"+d.id;OPEN[k]=!OPEN[k];if(OPEN[k])openThread(d.id);else closeThread(d.id);render()},
  best:function(d){upd("posts/"+d.id,{best:d.r,bestUid:d.u}).then(function(){toast(t("Marcada como a resposta mais útil."))})},
  cmp:function(d){var i=CMP.indexOf(d.k);if(i>-1)CMP.splice(i,1);else{if(CMP.length>=4){toast(t("Podes comparar até 4 de cada vez."));return}CMP.push(d.k)}render()},
- cmpclear:function(){CMP=[];render()},
+ cmpclear:function(){CMP=[];comparisonMinimized=false;render()},
  cmpadd:function(){var v=val("cmpadd");if(v&&CMP.indexOf(v)<0&&CMP.length<4)CMP.push(v);render()},
  writerev:function(d){RV.alvo=d.k;RV.notas={};var mine=REVS.filter(function(r){return r.alvo===d.k&&r.uid===UID})[0];if(mine)RV.notas=Object.assign({},obj(mine.notas));go("avaliacoes",null,"escrever")},
  note:function(d){RV.notas[d.c]=RV.notas[d.c]===+d.n?undefined:+d.n;RV.alvo=val("rv-alvo")||RV.alvo;render()},
@@ -1936,10 +2027,12 @@ var FORM={
    DB.collection("posts/"+id+"/resp").add({uid:UID,txt:txt,fonte:fonte,ts:now()}).then(function(){$("rx-"+id).value="";if($("rf-"+id))$("rf-"+id).value="";var po=byId(POSTS,id);if(po)upd("posts/"+id,{nresp:(po.nresp||0)+1})}).catch(fail(m))},
  instadd:function(f){var m=$("ia-msg");if(!canW(m,true))return;var n=val("ia-nome"),c=val("ia-cid");if(!n||!c){setMsg(m,t("Preenche o nome e a cidade."),true);return}
    if(allInst().some(function(i){return norm(i.nome)===norm(n)})){setMsg(m,t("Esta instituição já existe."),true);return}
-   DB.collection("instituicoes").add({nome:n,cidade:c,dist:val("ia-dist"),tipo:val("ia-tipo"),uid:UID,ts:now()}).then(function(){f.reset();setMsg(m,t("Adicionada."))}).catch(fail(m))},
+   var rating=initialRating("ia",m);if(!rating)return;
+   DB.collection("instituicoes").add({nome:n,cidade:c,dist:val("ia-dist"),tipo:val("ia-tipo"),uid:UID,ts:now(),notaInicial:rating.nota,link:rating.link}).then(function(){f.reset();setMsg(m,t("Adicionada."))}).catch(fail(m))},
  progadd:function(f){var m=$("pa-msg");if(!canW(m,true))return;var i=val("pa-inst"),n=val("pa-nome");if(!i||n.length<4){setMsg(m,t("Escolhe a instituição e escreve o nome do curso."),true);return}
    if(PROGS.some(function(p){return p.inst===i&&norm(p.nome)===norm(n)})){setMsg(m,t("Este curso já está na lista."),true);return}
-   DB.collection("programas").add({inst:i,nome:n,nivel:val("pa-niv"),area:val("pa-area"),uid:UID,ts:now(),oficial:{}}).then(function(){f.reset();setMsg(m,t("Adicionado. Obrigado!"))}).catch(fail(m))},
+   var rating=initialRating("pa",m);if(!rating)return;
+   DB.collection("programas").add({inst:i,nome:n,nivel:val("pa-niv"),area:val("pa-area"),uid:UID,ts:now(),notaInicial:rating.nota,oficial:{link:rating.link}}).then(function(){f.reset();setMsg(m,t("Adicionado. Obrigado!"))}).catch(fail(m))},
  oficial:function(f){var id=f.getAttribute("data-id"),o={};OFICIAL.forEach(function(x){o[x[0]]=val("of-"+x[0])});upd("programas/"+id,{oficial:o,verif:val("of-verif")},$("of-msg")).then(function(){setMsg("of-msg",t("Guardado."))})},
  rev:function(f){var m=$("rv-msg");if(!canW(m,true))return;var alvo=val("rv-alvo"),txt=val("rv-txt");RV.alvo=alvo;
    if(!alvo){setMsg(m,t("Escolhe o que vais avaliar."),true);return}if(!RV.notas.geral){setMsg(m,t("Dá pelo menos a nota de experiência geral."),true);return}
@@ -2003,7 +2096,7 @@ document.addEventListener("change",function(e){var el=e.target;
   if(el.id==="langPick"||el.id==="langPick2"){L=el.value;ls("uo.lang",L);TXT={};render();return}
   if(el.id==="fotoIn"){readFoto(el.files&&el.files[0]);return}
   if(el.id==="pf-inst"){F.pfOutra=el.value==="outra";render();return}
-  if(el.id==="rv-alvo"){RV.alvo=el.value;var mine=REVS.filter(function(r){return r.alvo===el.value&&r.uid===UID})[0];if(mine)RV.notas=Object.assign({},obj(mine.notas));render();return}
+  if(el.id==="rv-alvo"){RV.alvo=el.value;var mine=REVS.filter(function(r){return r.alvo===el.value&&r.uid===UID})[0];RV.notas=mine?Object.assign({},obj(mine.notas)):{};render();return}
   if(el.id==="ob-meta"){OBJ.meta=el.value;saveObj();return}
   var a=el.getAttribute("data-a");if(a&&CHANGE[a]){CHANGE[a](el);return}
   var fl=el.getAttribute("data-flt");if(fl&&el.tagName==="SELECT"){F[fl]=el.value;render()}
@@ -2125,13 +2218,13 @@ RENDER.mensagens=function(){
   var h=secHead(t("mensagens"),t("Mensagens"),esc(t("Conversas a dois com pessoas da Anfitriu.")));
   if(!DB)return h+lockedHTML("As mensagens");
   var L=myConvs(),cur=DMC,c=L.filter(function(x){return x.id===cur})[0];
-  if(!L.length&&!cur)return h+'<p class="sm m">Ainda não tens mensagens.</p>';
+  if(!L.length&&!cur)return h+'<p class="sm m">'+esc(t("Ainda não tens mensagens."))+'</p>';
   if(DMC&&!c){var other=DMC.split("__").filter(function(u){return u!==UID})[0];c={id:DMC,membros:[UID,other],novo:true}}
   var list='<div class="stack-s"><div class="olist" style="padding:.2rem .6rem">'+(L.length?L.map(function(x){var o=otherOf(x),un=x.lastUid&&x.lastUid!==UID&&(x.last||0)>(LIDAS[x.id]||0);return'<button class="who" type="button" data-a="dmopen" data-id="'+esc(x.id)+'" style="width:100%;background:'+(x.id===(c&&c.id)?"var(--surface2)":"none")+';border:0;border-bottom:1px solid var(--line);padding:.6rem .3rem;cursor:pointer;text-align:left;color:inherit;font:inherit">'+ident(o,36)+'<div style="flex:1"><b>'+esc(nameOf(o))+'</b><div class="xs m">'+esc(ago(x.last))+'</div></div>'+(un?'<span class="badge-n" style="background:var(--bad);color:#fff;border-radius:999px;padding:.1rem .45rem;font:600 .7rem var(--f-mono)">'+esc(t("nova"))+'</span>':'')+'</button>'}).join(""):'<p class="sm m" style="padding:.8rem 0">'+esc(t("Ainda sem conversas. Em Explorar › Pessoas, encontra quem tem coisas em comum contigo."))+'</p>')+'</div></div>';
   var pane="";
   if(c){var o=otherOf(c),M=arr(DMMSG[c.id]).filter(visible),al=dmAllowed(o);
     pane='<div class="panel" style="gap:.6rem"><div class="row sb">'+whoHTML(o,40,esc(commonWith(o).slice(0,3).join(" · ")))+'<div class="acts"><button class="btn ghost" type="button" data-a="user" data-id="'+esc(o)+'">'+esc(t("Ver perfil"))+'</button><button class="btn ghost" type="button" data-a="block" data-id="'+esc(o)+'">'+esc(t("Bloquear"))+'</button></div></div>'+
-      '<div class="chat" id="dmbox" data-keepscroll="1" style="height:340px;background:var(--surface2);border-radius:10px;padding:.6rem">'+(M.length?M.map(function(m){var mine=m.uid===UID;return'<div style="display:flex;justify-content:'+(mine?"flex-end":"flex-start")+';margin:.2rem 0"><div style="max-width:78%;background:'+(mine?"var(--sec)":"var(--surface)")+';color:'+(mine?"var(--sec-ink)":"var(--ink)")+';border:1.5px solid var(--edge);border-radius:14px;padding:.45rem .7rem"><p class="pre wrap">'+esc(m.txt)+'</p><span class="xs" style="opacity:.7">'+esc(ftime(new Date(m.ts)))+'</span></div></div>'}).join(""):'<p class="sm m">'+esc(t("Diz olá. Começa por aquilo que têm em comum."))+'</p>')+'</div>'+
+      '<div class="chat" id="dmbox" data-keepscroll="1" data-thread="'+esc(c.id)+'" tabindex="0" aria-label="'+esc(t("Mensagens"))+'">'+(M.length?M.map(function(m){var mine=m.uid===UID;return'<div class="dm-line'+(mine?' own':'')+'"><p class="pre wrap">'+esc(m.txt)+'</p><time class="xs m" datetime="'+esc(new Date(m.ts).toISOString())+'">'+esc(ftime(new Date(m.ts)))+'</time></div>' }).join(""):'<p class="sm m">'+esc(t("Diz olá. Começa por aquilo que têm em comum."))+'</p>')+'</div>'+
       (al.ok?'<form class="row" data-f="dm" data-id="'+esc(c.id)+'" data-u="'+esc(o)+'" style="flex-wrap:nowrap"><input class="fld" id="dm-txt" maxlength="1000" autocomplete="off" placeholder="'+esc(t("Escreve uma mensagem"))+'" aria-label="'+esc(t("Mensagem"))+'"><button class="btn" type="submit">'+esc(t("Enviar"))+'</button></form>':'<p class="note">'+esc(al.why)+'</p>')+
       '<p class="xs m">'+esc(t("As mensagens ficam guardadas na base de dados da Anfitriu e não são encriptadas. Não partilhes dados sensíveis."))+'</p></div>'}
   else pane=emptyHTML(esc(t("Escolhe uma conversa ou começa uma nova a partir do perfil de alguém.")));
@@ -2140,7 +2233,7 @@ RENDER.mensagens=function(){
 // Atualização isolada: não recria a caixa de escrita, a navegação nem o ecrã.
 function updateDmMessagesOnly(){
   var box=$("dmbox");
-  if(!box||V!=="mensagens"||!DMC)return;
+  if(!box||V!=="mensagens"||box.dataset.thread!==DMC)return;
   var tmp=document.createElement("div");
   tmp.innerHTML=RENDER.mensagens();
   var fresh=tmp.querySelector("#dmbox");
@@ -2152,9 +2245,9 @@ function updateDmMessagesOnly(){
     box.scrollTop=wasBottom?box.scrollHeight:previousTop;
   }
 }
-function openDm(cid){DMC=cid;LIDAS[cid]=Date.now();if(DB)savePriv("lidas",LIDAS).catch(function(){});
+function openDm(cid){var input=$("dm-txt");if(input&&cid!==DMC)input.value="";DMC=cid;LIDAS[cid]=Date.now();if(DB)savePriv("lidas",LIDAS).catch(function(){});
   Object.keys(SUB).forEach(function(k){if(k.indexOf("dm:")===0&&k!=="dm:"+cid){try{SUB[k]()}catch(e){}delete SUB[k]}});
-  if(DB)sub("dm:"+cid,DB.collection("conversas/"+cid+"/msgs").orderBy("ts","asc").limit(300),function(L){DMMSG[cid]=L;if(V==="mensagens"&&DMC===cid){LIDAS[cid]=Date.now();updateDmMessagesOnly()}});
+  if(DB)sub("dm:"+cid,DB.collection("conversas/"+cid+"/msgs").orderBy("ts","desc").limit(300),function(L){DMMSG[cid]=L.reverse();if(V==="mensagens"&&DMC===cid){LIDAS[cid]=Date.now()}});
   render()}
 ACT.dm=function(d){if(!canW(null,true))return;var al=dmAllowed(d.u);var cid=cidOf(UID,d.u);if(!al.ok&&!CONV.some(function(c){return c.id===cid})){toast(al.why);return}go("mensagens");openDm(cid)};
 ACT.dmopen=function(d){openDm(d.id)};
@@ -3307,7 +3400,7 @@ progList=function(q){
   return chipsHTML("xniv",nivs,nv)+'<div class="fg"><select class="fld" id="xpdist" data-flt="xpdist" aria-label="'+esc(t("Distrito"))+'"><option value="">'+esc(t("Todos os distritos e ilhas"))+'</option>'+DIST.map(function(x){return'<option value="'+esc(x)+'"'+(di===x?" selected":"")+'>'+esc(x)+'</option>'}).join("")+'</select><select class="fld" id="xpinst" data-flt="xpinst" aria-label="'+esc(t("Instituição"))+'"><option value="">'+esc(t("Todas as instituições"))+'</option>'+allInst().filter(function(i){return!di||i.dist===di}).map(function(i){return'<option value="'+esc(i.id)+'"'+(ii===i.id?" selected":"")+'>'+esc(i.nome)+'</option>'}).join("")+'</select></div>'+
    '<p class="xs m">'+esc(t("{n} resultados.",{n:list.length}))+' '+esc(t("Licenciaturas e mestrados integrados do Guia de Candidatura da DGES (2026) e mestrados do registo oficial de cursos da DGES. CTeSP, pós-graduações e doutoramentos são juntados pelos membros."))+'</p>'+
    (list.length?'<ul class="inst-list">'+list.slice(0,lim).map(function(p){var i=instById(p.inst),s=scoreOf("prog:"+p.id);return'<li><div class="stack-s"><button class="lnk" style="text-align:left;color:var(--ink);text-decoration:none;font:600 1rem var(--f-body)" type="button" data-a="prog" data-id="'+esc(p.id)+'">'+esc(p.nome)+'</button><span class="xs m"><span class="tag">'+esc(t(p.nivel||""))+'</span> '+esc(i?i.nome:"")+(i&&i.cidade?' · '+esc(i.cidade):'')+'</span></div><div class="score">'+f1(s.g)+'<small>'+esc(t("{n} aval.",{n:s.n}))+'</small></div>'+cmpBtn("prog:"+p.id)+'</li>'}).join("")+'</ul>'+(list.length>lim?'<button class="btn sec" type="button" data-a="xmore">'+esc(t("Ver mais ({n})",{n:list.length-lim}))+'</button>':''):emptyHTML(esc(t("Nenhum curso com estes filtros. Falta algum? Junta-o abaixo."))))+
-   (DB?'<form class="panel tight" data-f="progadd"><span class="lbl">'+esc(t("Juntar um curso que falta (mestrado, CTeSP, pós-graduação, doutoramento…)"))+'</span><div class="fg"><select class="fld" id="pa-inst" required aria-label="'+esc(t("Instituição"))+'"><option value="">'+esc(t("Instituição"))+'</option>'+allInst().map(function(i){return'<option value="'+esc(i.id)+'">'+esc(i.nome)+'</option>'}).join("")+'</select><select class="fld" id="pa-niv" aria-label="'+esc(t("Nível"))+'">'+NIVEIS.map(function(x){return'<option value="'+esc(x)+'"'+(x==="Mestrado"?" selected":"")+'>'+esc(t(x))+'</option>'}).join("")+'</select><input class="fld" id="pa-nome" maxlength="110" required placeholder="'+esc(t("Nome, como aparece no site oficial"))+'" aria-label="'+esc(t("Nome"))+'"><input class="fld" id="pa-area" maxlength="60" placeholder="'+esc(t("Área (ex.: Psicologia)"))+'" aria-label="'+esc(t("Área"))+'"></div><div class="row"><button class="btn s" type="submit">'+esc(t("Juntar"))+'</button><span class="msg" id="pa-msg"></span></div></form>':'');
+   (DB?'<form class="panel tight" data-f="progadd"><span class="lbl">'+esc(t("Juntar um curso que falta (mestrado, CTeSP, pós-graduação, doutoramento…)"))+'</span><div class="fg"><select class="fld" id="pa-inst" required aria-label="'+esc(t("Instituição"))+'"><option value="">'+esc(t("Instituição"))+'</option>'+allInst().map(function(i){return'<option value="'+esc(i.id)+'">'+esc(i.nome)+'</option>'}).join("")+'</select><select class="fld" id="pa-niv" aria-label="'+esc(t("Nível"))+'">'+NIVEIS.map(function(x){return'<option value="'+esc(x)+'"'+(x==="Mestrado"?" selected":"")+'>'+esc(t(x))+'</option>'}).join("")+'</select><input class="fld" id="pa-nome" maxlength="110" required placeholder="'+esc(t("Nome, como aparece no site oficial"))+'" aria-label="'+esc(t("Nome"))+'"><input class="fld" id="pa-area" maxlength="60" placeholder="'+esc(t("Área (ex.: Psicologia)"))+'" aria-label="'+esc(t("Área"))+'"></div>'+initialRatingFields("pa")+'<div class="row"><button class="btn s" type="submit">'+esc(t("Juntar"))+'</button><span class="msg" id="pa-msg"></span></div></form>':'');
 };
 ACT.xmore=function(){F.xlim=(F.xlim||40)+60;render()};
 instList=function(q){
@@ -3317,7 +3410,7 @@ instList=function(q){
   return'<div class="fg"><select class="fld" id="xdist" data-flt="xdist" aria-label="'+esc(t("Distrito"))+'"><option value="">'+esc(t("Todos os distritos e ilhas"))+'</option>'+DIST.map(function(x){return'<option value="'+esc(x)+'"'+(d===x?" selected":"")+'>'+esc(x)+(cnt[x]?" ("+cnt[x]+")":"")+'</option>'}).join("")+'</select><select class="fld" id="xtipo" data-flt="xtipo" aria-label="'+esc(t("Tipo"))+'"><option value="">'+esc(t("Pública e privada"))+'</option>'+TIPOS_I.map(function(x){return'<option value="'+x+'"'+(tp===x?" selected":"")+'>'+esc(t(x))+'</option>'}).join("")+'</select><select class="fld" id="xkind" data-flt="xkind" aria-label="'+esc(t("Tipo de instituição"))+'"><option value="">'+esc(t("Universidades, politécnicos e escolas"))+'</option>'+INSTKIND.map(function(x){return'<option value="'+esc(x)+'"'+(kd===x?" selected":"")+'>'+esc(t(x))+'</option>'}).join("")+'</select></div>'+
    '<p class="xs m">'+esc(t("{n} instituições.",{n:list.length}))+'</p>'+
    (list.length?'<ul class="inst-list">'+list.map(function(i){var s=scoreOf("inst:"+i.id),np=progsOf(i.id).length;return'<li><div class="stack-s"><button class="lnk" style="text-align:left;color:var(--ink);text-decoration:none;font:600 1rem var(--f-body)" type="button" data-a="inst" data-id="'+esc(i.id)+'">'+esc(i.nome)+'</button><span class="xs m">'+esc([i.cidade,t(i.tipo),i.kind?t(i.kind):"",np?t("{n} cursos",{n:np}):""].filter(Boolean).join(" · "))+(i.com?' · '+esc(t("adicionada pela comunidade")):'')+'</span></div><div class="score" title="'+esc(t("Experiência geral"))+'">'+f1(s.g)+'<small>'+esc(t("{n} aval.",{n:s.n}))+'</small></div>'+cmpBtn("inst:"+i.id)+'</li>'}).join("")+'</ul>':emptyHTML(esc(t("Nenhuma instituição com estes filtros."))))+
-   (DB?'<details class="panel tight" id="d-instadd"><summary class="sm" style="cursor:pointer;font-weight:600">'+esc(t("Falta uma instituição? Adiciona-a"))+'</summary><form class="stack-s" data-f="instadd" style="margin-top:.7rem"><div class="fg"><input class="fld" id="ia-nome" maxlength="90" required placeholder="'+esc(t("Nome oficial"))+'" aria-label="'+esc(t("Nome oficial"))+'"><input class="fld" id="ia-cid" maxlength="40" required placeholder="'+esc(t("Cidade"))+'" aria-label="'+esc(t("Cidade"))+'"><select class="fld" id="ia-dist" aria-label="'+esc(t("Distrito"))+'">'+DIST.map(function(x){return'<option>'+esc(x)+'</option>'}).join("")+'</select><select class="fld" id="ia-tipo" aria-label="'+esc(t("Tipo"))+'">'+TIPOS_I.map(function(x){return'<option value="'+x+'">'+esc(t(x))+'</option>'}).join("")+'</select></div><div class="row"><button class="btn s" type="submit">'+esc(t("Adicionar"))+'</button><span class="msg" id="ia-msg"></span></div></form></details>':'');
+   (DB?'<details class="panel tight" id="d-instadd"><summary class="sm" style="cursor:pointer;font-weight:600">'+esc(t("Falta uma instituição? Adiciona-a"))+'</summary><form class="stack-s" data-f="instadd" style="margin-top:.7rem"><div class="fg"><input class="fld" id="ia-nome" maxlength="90" required placeholder="'+esc(t("Nome oficial"))+'" aria-label="'+esc(t("Nome oficial"))+'"><input class="fld" id="ia-cid" maxlength="40" required placeholder="'+esc(t("Cidade"))+'" aria-label="'+esc(t("Cidade"))+'"><select class="fld" id="ia-dist" aria-label="'+esc(t("Distrito"))+'">'+DIST.map(function(x){return'<option>'+esc(x)+'</option>'}).join("")+'</select><select class="fld" id="ia-tipo" aria-label="'+esc(t("Tipo"))+'">'+TIPOS_I.map(function(x){return'<option value="'+x+'">'+esc(t(x))+'</option>'}).join("")+'</select></div>'+initialRatingFields("ia")+'<div class="row"><button class="btn s" type="submit">'+esc(t("Adicionar"))+'</button><span class="msg" id="ia-msg"></span></div></form></details>':'');
 };
 var _exU=RENDER.explorar;
 RENDER.explorar=function(){var h=_exU();if(DET)return h;return h.replace(esc(t("Cursos e mestrados")),esc(t("Cursos"))).replace(esc(t("Instituições, cursos, mestrados e pessoas de todo o país.")),esc(t(VDESC.explorar)))};
@@ -3336,7 +3429,7 @@ function datasHTML(compact){var td=todayStr(),L=DATAS.filter(function(d){return 
   return'<section class="panel datas"><div class="ph"><h3>'+ico("cal",18)+' '+esc(t("Prazos importantes"))+'</h3><span class="xs m">'+esc(t("Confirma sempre no site oficial"))+'</span></div><ul class="olist">'+L.map(function(d){var ev={titulo:t(d.titulo),data:d.data,desc:t(d.desc)+(d.link?"\n"+d.link:""),id:d.id};return'<li><div class="stack-s"><div class="row" style="gap:.35rem"><span class="tag v">'+esc(t(d.tipo))+'</span>'+(d.conf?'<span class="tag a">'+esc(t("Confirmado"))+'</span>':'<span class="tag w">'+esc(t("Previsto"))+'</span>')+'</div><b class="wrap">'+esc(t(d.titulo))+'</b>'+(compact?'':'<span class="sm m wrap">'+esc(t(d.desc))+'</span>')+(d.link?'<span class="sm">'+linkOut(d.link,t("Site oficial"))+'</span>':'')+'</div><div class="r"><b class="mono">'+esc(fdate(dOf(d.data),{day:"numeric",month:"short",year:"numeric"}))+'</b><div class="row" style="gap:.3rem;justify-content:flex-end">'+calBtns(ev,icsReg(ev))+'</div></div></li>'}).join("")+'</ul>'+
    (compact?'':'<div class="stack-s"><span class="lbl">'+esc(t("Sem data fixa"))+'</span>'+SEMPRE.map(function(s){return'<p class="sm"><b>'+esc(t(s[0]))+'.</b> '+esc(t(s[1]))+'</p>'}).join("")+'</div>')+'</section>'}
 var _opU=RENDER.oportunidades;
-RENDER.oportunidades=function(){var h=_opU(),i=h.indexOf('<div class="row sb"><input class="fld" id="oq"');return i>-1?h.slice(0,i)+datasHTML(false)+h.slice(i):h+datasHTML(false)};
+RENDER.oportunidades=function(){var h=_opU(),i=h.indexOf('<div class="row sb"><input class="fld" id="oq"');return DET?h:i>-1?h.slice(0,i)+datasHTML(false)+h.slice(i):h+datasHTML(false)};
 var _agU=RENDER.agenda;
 RENDER.agenda=function(){var h=_agU();return h+datasHTML(true)};
 BOLSAS.forEach(function(b){if(b.id==="b-dges")b.d="Apoio a estudantes com carência económica. O prazo normal de 2026/2027 terminou a 2 de outubro, mas ainda podes candidatar-te até 31 de maio de 2027 na plataforma BeOn da DGES."});
@@ -3590,12 +3683,12 @@ progList=function(q,embedded){
   var list=results.filter(function(p){return !di||programDistrict(p,instById(p.inst))===di});
   list.sort(function(a,b){var sa=scoreOf("prog:"+a.id).n,sb=scoreOf("prog:"+b.id).n;return sb-sa||a.nome.localeCompare(b.nome,"pt")||((instById(a.inst)||{}).nome||"").localeCompare((instById(b.inst)||{}).nome||"","pt")});
   var filt=(nv||di||ii||institutionQuery)?'<button class="chip" type="button" data-a="xclear">× Limpar filtros</button>':'';
-  return '<div class="stack-s"><label for="xpinst-search">Pesquisar instituição ou faculdade</label><input class="fld" id="xpinst-search" type="search" data-sug="institution-filter" data-flt="xpin" data-fresh="1" value="'+esc(institutionQuery)+'" placeholder="Ex.: Universidade do Porto ou Faculdade de Psicologia" autocomplete="off">'+
-    '<span class="lbl">Distrito ou região</span>'+chipsHTML("xpdist",locations,di)+
-    '<span class="lbl">Tipo de formação</span>'+chipsHTML("xniv",NIVEIS,nv)+'</div>'+
+  return '<div class="stack-s"><label for="xpinst-search">'+esc(t("Pesquisar instituição ou faculdade"))+'</label><input class="fld" id="xpinst-search" type="search" data-sug="institution-filter" data-flt="xpin" data-fresh="1" value="'+esc(institutionQuery)+'" placeholder="Ex.: Universidade do Porto ou Faculdade de Psicologia" autocomplete="off">'+
+    '<span class="lbl">'+esc(t("Distrito ou região"))+'</span>'+chipsHTML("xpdist",locations,di)+
+    '<span class="lbl">'+esc(t("Tipo de formação"))+'</span>'+chipsHTML("xniv",NIVEIS,nv)+'</div>'+
    '<div class="row sb"><p class="xs m" style="margin:0">'+esc(t("{n} resultados.",{n:list.length}))+'</p>'+filt+'</div>'+
    (list.length?'<ul class="inst-list">'+list.slice(0,lim).map(function(p){var i=instById(p.inst),s=scoreOf("prog:"+p.id),dg=p.dg;return'<li><div class="stack-s"><button class="lnk" style="text-align:left;color:var(--ink);text-decoration:none;font:600 1rem var(--f-body)" type="button" data-a="prog" data-id="'+esc(p.id)+'">'+esc(p.nome)+'</button><span class="xs m"><span class="tag">'+esc(t(p.nivel||""))+'</span> '+esc(programProvider(p,i))+(programLocation(p,i)?' · '+esc(programLocation(p,i)):'')+(dg&&dg.vag?' · '+esc(t("{n} vagas",{n:dg.vag})):'')+(dg&&dg.ult?' · '+esc(t("último colocado {n}",{n:dg.ult})):'')+'</span></div><div class="score">'+f1(s.g)+'<small>'+esc(t("{n} aval.",{n:s.n}))+'</small></div>'+cmpBtn("prog:"+p.id)+'</li>'}).join("")+'</ul>'+(list.length>lim?'<button class="btn sec" type="button" data-a="xmore">'+esc(t("Ver mais ({n})",{n:list.length-lim}))+'</button>':''):emptyHTML(esc(t((nv||di||ii)?"Nenhum curso com estes filtros. Experimenta limpar os filtros.":"Nenhum curso encontrado. Falta algum? Junta-o abaixo."))+(filt?' '+filt:'')))+
-   (embedded?'':'<p class="xs m">'+esc(t("Licenciaturas e mestrados integrados do Guia de Candidatura da DGES (2026) e mestrados do registo oficial de cursos da DGES. CTeSP, pós-graduações e doutoramentos são juntados pelos membros."))+'</p>'+(DB?'<form class="panel tight" data-f="progadd"><span class="lbl">'+esc(t("Juntar um curso que falta (mestrado, CTeSP, pós-graduação, doutoramento…)"))+'</span><div class="fg"><select class="fld" id="pa-inst" required aria-label="'+esc(t("Instituição"))+'"><option value="">'+esc(t("Instituição"))+'</option>'+allInst().map(function(i){return'<option value="'+esc(i.id)+'">'+esc(i.nome)+'</option>'}).join("")+'</select><select class="fld" id="pa-niv" aria-label="'+esc(t("Nível"))+'">'+NIVEIS.map(function(x){return'<option value="'+esc(x)+'"'+(x==="Mestrado"?" selected":"")+'>'+esc(t(x))+'</option>'}).join("")+'</select><input class="fld" id="pa-nome" maxlength="110" required placeholder="'+esc(t("Nome, como aparece no site oficial"))+'" aria-label="'+esc(t("Nome"))+'"><input class="fld" id="pa-area" maxlength="60" placeholder="'+esc(t("Área (ex.: Psicologia)"))+'" aria-label="'+esc(t("Área"))+'"></div><div class="row"><button class="btn s" type="submit">'+esc(t("Juntar"))+'</button><span class="msg" id="pa-msg"></span></div></form>':''));
+   (embedded?'':'<p class="xs m">'+esc(t("Licenciaturas e mestrados integrados do Guia de Candidatura da DGES (2026) e mestrados do registo oficial de cursos da DGES. CTeSP, pós-graduações e doutoramentos são juntados pelos membros."))+'</p>'+(DB?'<form class="panel tight" data-f="progadd"><span class="lbl">'+esc(t("Juntar um curso que falta (mestrado, CTeSP, pós-graduação, doutoramento…)"))+'</span><div class="fg"><select class="fld" id="pa-inst" required aria-label="'+esc(t("Instituição"))+'"><option value="">'+esc(t("Instituição"))+'</option>'+allInst().map(function(i){return'<option value="'+esc(i.id)+'">'+esc(i.nome)+'</option>'}).join("")+'</select><select class="fld" id="pa-niv" aria-label="'+esc(t("Nível"))+'">'+NIVEIS.map(function(x){return'<option value="'+esc(x)+'"'+(x==="Mestrado"?" selected":"")+'>'+esc(t(x))+'</option>'}).join("")+'</select><input class="fld" id="pa-nome" maxlength="110" required placeholder="'+esc(t("Nome, como aparece no site oficial"))+'" aria-label="'+esc(t("Nome"))+'"><input class="fld" id="pa-area" maxlength="60" placeholder="'+esc(t("Área (ex.: Psicologia)"))+'" aria-label="'+esc(t("Área"))+'"></div>'+initialRatingFields("pa")+'<div class="row"><button class="btn s" type="submit">'+esc(t("Juntar"))+'</button><span class="msg" id="pa-msg"></span></div></form>':''));
 };
 ACT.xclear=function(){F.xniv="";F.xpdist="";F.xpinst="";F.xpin="";F.xdist="";F.xtipo="";F.xkind="";F.xlim=40;render()};
 function instMatches(q){var d=F.xdist||"",tp=F.xtipo||"",kd=F.xkind||"";return allInst().filter(function(i){return matchQ(instHay(i),q)&&(!d||i.dist===d)&&(!tp||i.tipo===tp)&&(!kd||(i.kind||"Instituto ou escola")===kd)})}
@@ -3618,7 +3711,7 @@ RENDER.explorar=function(){
   if(tb==="inst")h+=instList(q);
   else if(tb==="pessoas")h+=peopleList(q);
   else h+=progList(q);
-  return h+trayHTML();
+  return h;
 };
 /* pesquisar a partir de qualquer separador leva logo aos resultados com mais conteúdo */
 document.addEventListener("input",function(e){if(e.target&&e.target.id==="xq"){F.xlim=40;var q=e.target.value;if(q&&V==="explorar"){var tb=TAB.explorar||"prog";if(tb==="inst"&&!instMatches(q).length)TAB.explorar="prog"}}});
@@ -3717,8 +3810,8 @@ function programPublishedData(program,institution){
 }
 function programSources(program,data){
  var links=arr(program.dgesLinks).map(function(pair){return linkOut(dgesPairURL(pair),"DGES · "+pair[2]+(pair[3]?" · "+pair[3]+" vagas em 2026":""))});
- if(data.admissionsLink)links.unshift(linkOut(data.admissionsLink,"Candidaturas e propinas"));
- if(data.link)links.unshift(linkOut(data.link,"Página da instituição para este curso"));
+ if(data.admissionsLink)links.unshift(linkOut(data.admissionsLink,t("Candidaturas e propinas")));
+ if(data.link)links.unshift(linkOut(data.link,t("Página da instituição para este curso")));
  return links.join("<br>");
 }
 var ADMISSION_FIELDS=[["taxaCandidatura","Taxa de candidatura"],["matricula","Matrícula, inscrição e seguro"],["pagamentoInicial","Quando se paga a matrícula e a primeira propina"],["earlyBird","Desconto por inscrição antecipada"]];
@@ -3731,6 +3824,8 @@ function schoolPublishedData(program, institution){
   pagamentoInicial:"Na matrícula: 470 € de matrícula + 561 € da primeira mensalidade (setembro) · 2026/27",
   requisitos:"12.º ano ou equivalente. Português + uma de: Biologia e Geologia, MACS (aceita Matemática A ou B) ou Filosofia · 2026/27",
   prazo:"2026/27 · 1.ª fase: 1 jun.–24 jul.; 2.ª: 25 jul.–11 ago.; 3.ª: 12–31 ago.; especial: 11–21 set.",
+  processo:"Candidatura online por fase, através do portal da Católica. Consulta a documentação e as condições da tua via.",
+  admissionsLink:"https://fch.lisboa.ucp.pt/pt-pt/licenciaturas/programas/licenciatura-em-psicologia/propinas",
   link:"https://fch.lisboa.ucp.pt/pt-pt/undergraduate/programs/licenciatura-em-psicologia"
  };
  if(school.includes("lusofona")&&norm(institution.cidade||"").includes("lisboa"))return {
@@ -3739,6 +3834,7 @@ function schoolPublishedData(program, institution){
   taxaCandidatura:"225 € · via de acesso · 2026/27",
   matricula:"Matrícula: 310 €; seguro: 50 €; inscrição em ano letivo: 370 € · tabela 2026/27",
   prazo:"2026/27 · mudança de par instituição/curso (8.ª época): 7 out. 2026–31 mar. 2027. Consulta o calendário da via de acesso.",
+  processo:"Candidatura online pela via de acesso aplicável. Consulta as épocas e os documentos na página do curso.",
   link:"https://www.ulusofona.pt/lisboa/licenciaturas/psicologia"
  };
  return {};
@@ -3746,14 +3842,16 @@ function schoolPublishedData(program, institution){
 compareHTML=function(){
   var add='<div class="row"><select class="fld" id="cmpinst" data-flt="cmpInst" style="max-width:300px" aria-label="'+esc(t("Instituição"))+'"><option value="">'+esc(t("Escolhe a instituição…"))+'</option>'+allInst().map(function(i){return'<option value="'+esc(i.id)+'"'+(F.cmpInst===i.id?" selected":"")+'>'+esc(i.nome)+'</option>'}).join("")+'</select>'+
     '<select class="fld" id="cmpadd" style="max-width:360px" aria-label="'+esc(t("Juntar à comparação"))+'"><option value="">'+esc(t(F.cmpInst?"Juntar à comparação…":"Escolhe primeiro a instituição"))+'</option>'+(F.cmpInst?['<option value="inst:'+esc(F.cmpInst)+'">'+esc(t("A instituição em geral"))+'</option>'].concat(progsOf(F.cmpInst).slice().sort(function(a,b){return a.nome.localeCompare(b.nome,"pt")}).filter(function(p){return CMP.indexOf("prog:"+p.id)<0}).map(function(p){return'<option value="prog:'+esc(p.id)+'">'+esc(p.nome)+' · '+esc(t(p.nivel||""))+'</option>'})).join(""):"")+'</select><button class="btn sec s" type="button" data-a="cmpadd">'+esc(t("Juntar"))+'</button>'+(CMP.length?'<button class="btn ghost s" type="button" data-a="cmpclear">'+esc(t("Limpar tudo"))+'</button>':'')+'</div><p class="xs m">'+esc(t("Também podes usar o botão Comparar em Explorar."))+'</p>';
-  if(CMP.length<2)return add+emptyHTML(esc(t("Escolhe pelo menos duas instituições ou cursos.")));
-  var cols=CMP.map(function(k){var p=k.split(":"),o={k:k,name:targetName(k),R:revsFor(k),of:{}};
-    if(p[0]==="inst"){var i=instById(p[1])||{},ag=instAgg(p[1]);o.of={tipo:[t(i.tipo||""),i.kind?t(i.kind):""].filter(Boolean).join(" · "),cidade:i.cidade||"",dist:i.dist||"",ncur:ag.np?String(ag.np):"",vag:ag.vag?String(ag.vag):"",propina:i.tipo==="Pública"?t("Licenciaturas: até 697 € por ano"):"",link:""};o.na={duracao:1,horario:1,requisitos:1,ult:1,prazo:1,conteudo:1,estagio:1,link:1}}
+  if(CMP.length<2)return add+emptyHTML(esc(t("Seleciona mais uma opção.")));
+  var cols=CMP.map(function(k){var extra=extraComparison(k);if(extra)return extra;var p=k.split(":"),o={k:k,name:targetName(k),R:revsFor(k),of:{}};
+    if(p[0]==="inst"){var i=instById(p[1])||{},ag=instAgg(p[1]);o.of={tipo:[t(i.tipo||""),i.kind?t(i.kind):""].filter(Boolean).join(" · "),cidade:i.cidade||"",dist:i.dist||"",ncur:ag.np?String(ag.np):"",vag:ag.vag?String(ag.vag):"",propina:i.tipo==="Pública"?t("Licenciaturas: até 697 € por ano"):"",link:i.link||""};o.na={duracao:1,horario:1,requisitos:1,ult:1,prazo:1,conteudo:1,estagio:1}}
     else{var g=progById(p[1])||{},ii=instById(g.inst)||{},of=programPublishedData(g,ii),dg=g.dg||{};o.of={tipo:t(g.nivel||""),cidade:programLocation(g,ii),dist:programDistrict(g,ii),propina:of.propina||"",duracao:of.duracao||"",horario:of.horario||"",vag:dg.vag?String(dg.vag):"",ult:dg.ult||"",requisitos:of.requisitos?of.requisitos.split(". Vagas")[0].replace(/\s*\(vê as combinações aceites na página oficial\)/,"").replace("Provas de ingresso possíveis: ",""):"",prazo:of.prazo||"",conteudo:of.conteudo||"",estagio:of.estagio||"",link:of.link||""};o.na={ncur:1};if(g.mest)o.na={ncur:1,vag:1,ult:1}}
     if(p[0]==="prog"){
       var program=progById(p[1])||{}, published=programPublishedData(program,instById(program.inst));
       o.of.faculdade=programProvider(program,instById(program.inst));
-      o.of.link=published.link||published.dges||"";
+      o.of.link=published.link||"";
+      o.sources=programSources(program,published);
+      o.of.processo=published.processo||"";
       ADMISSION_FIELDS.forEach(function(field){o.of[field[0]]=published[field[0]]});
       Object.assign(o.of,schoolPublishedData(program,instById(program.inst)||{}));
     }
@@ -3761,16 +3859,21 @@ compareHTML=function(){
   var rows=[["tipo","Nível ou tipo"],["cidade","Cidade"],["dist","Distrito ou região"],["ncur","Cursos na lista"],["propina","Propina anual"],["duracao","Duração"],["horario","Horário e regime"],["vag","Vagas 2026/2027"],["ult","Último colocado 2025 (1.ª fase)"],["requisitos","Provas de ingresso ou requisitos"],["prazo","Prazo de candidatura"],["conteudo","Conteúdos principais"],["estagio","Estágio ou investigação"],["link","Página oficial"]]; //i18n
   rows.splice(2,0,["faculdade","Instituição / faculdade"]);
   var deadlineIndex=rows.findIndex(function(row){return row[0]==="prazo"});
-  rows.splice.apply(rows,[deadlineIndex+1,0].concat(ADMISSION_FIELDS));
-  rows=rows.filter(function(r){return cols.some(function(c){return c.of[r[0]]&&(!c.na||!c.na[r[0]])})});
+  rows.splice.apply(rows,[deadlineIndex+1,0,["processo","Processo de candidatura"]].concat(ADMISSION_FIELDS));
+  rows.splice(3,0,["desc","Descrição"],["preco","Preço"]);
+  var academic=cols.some(function(c){return /^(inst|prog):/.test(c.k)});
+  var required=["propina","prazo","taxaCandidatura","matricula","processo"];
+  rows=rows.filter(function(r){return (academic&&required.includes(r[0]))||cols.some(function(c){return (r[0]==="link"&&c.sources)||c.of[r[0]]})});
+  if(!rows.some(function(r){return r[0]==="link"}))rows.push(["link","Página oficial"]);
   var h='<div class="scroll"><table><thead><tr><th></th>'+cols.map(function(c){return'<th>'+esc(c.name)+' <button class="lnk m xs" type="button" data-a="cmp" data-k="'+esc(c.k)+'" aria-label="'+esc(t("Remover"))+'">×</button></th>'}).join("")+'</tr></thead><tbody><tr class="grp"><th colspan="'+(cols.length+1)+'">'+esc(t("Dados oficiais"))+'</th></tr>';
   rows.forEach(function(r){var vals=cols.map(function(c){return c.of[r[0]]}),best=null;
     if(r[0]==="ult"){var nums=vals.map(function(v){return v?parseFloat(String(v).replace(",",".")):null}).filter(function(x){return x!=null});if(nums.length>1)best=Math.max.apply(null,nums)}
-    h+='<tr><th>'+esc(t(r[1]))+'</th>'+cols.map(function(c){var v=c.of[r[0]];if(c.na&&c.na[r[0]])return'<td class="m">—</td>';return'<td>'+(v?(r[0]==="link"?linkOut(v,t("Abrir")):esc(v)):'<span class="pend">'+esc(t("a confirmar"))+'</span>')+'</td>'}).join("")+'</tr>'});
+    h+='<tr><th>'+esc(t(r[1]))+'</th>'+cols.map(function(c){var v=c.of[r[0]];if(c.na&&c.na[r[0]])return'<td class="m">—</td>';if(r[0]==="link"&&c.sources)return '<td>'+c.sources+'</td>';return'<td>'+(v?(r[0]==="link"?linkOut(v,t("Página oficial")):esc(t(v))):'<span class="pend">'+esc(t("a confirmar"))+'</span>')+'</td>'}).join("")+'</tr>'});
   h+='<tr class="grp"><th colspan="'+(cols.length+1)+'">'+esc(t("Opinião da comunidade (não verificada)"))+'</th></tr><tr><th>'+esc(t("Número de avaliações"))+'</th>'+cols.map(function(c){return'<td class="num">'+c.R.length+'</td>'}).join("")+'</tr>';
   CATS.forEach(function(ca){var vals=cols.map(function(c){return avg(c.R.map(function(r){return obj(r.notas)[ca[0]]}))}),best=Math.max.apply(null,vals.map(function(v){return v||0}));
     h+='<tr><th>'+esc(t(ca[1]))+'</th>'+vals.map(function(v){return'<td class="num"'+(v&&v===best&&vals.filter(function(x){return x}).length>1?' style="color:var(--accent);font-weight:700"':'')+'>'+(v?f1(v):"–")+'</td>'}).join("")+'</tr>'});
-  return add+h+'</tbody></table></div><p class="xs m">'+esc(t("Dados do Guia DGES e das instituições quando disponíveis. Confirma os próximos prazos na página oficial de cada curso."))+'</p>';
+  h+='<tr><th>'+esc(t("Opiniões"))+'</th>'+cols.map(function(c){var reviews=c.R.filter(function(r){return r.txt&&!hiddenByRep(r)}).sort(function(a,b){return b.ts-a.ts}).slice(0,3);return '<td>'+ (reviews.length?reviews.map(function(r){return '<p class="cmp-opinion">'+esc(r.txt.slice(0,280))+(r.txt.length>280?'…':'')+'</p>'}).join(""):'<span class="m">'+esc(t("Ainda sem avaliações."))+'</span>')+'</td>'}).join("")+'</tr>';
+  return add+h+'</tbody></table></div><p class="xs m">'+esc(t("Confirma sempre no site oficial"))+'</p>';
 };
 (function(){var X={"Limpar filtros":["Clear filters","Borrar filtros","Filter löschen","Effacer les filtres","Cancella filtri"],"{n} vagas":["{n} places","{n} plazas","{n} Plätze","{n} places","{n} posti"],"último colocado {n}":["last admitted {n}","último admitido {n}","zuletzt Zugelassene {n}","dernier admis {n}","ultimo ammesso {n}"],
  "Nenhum curso com estes filtros. Experimenta limpar os filtros.":["No courses with these filters. Try clearing them.","Ningún curso con estos filtros. Prueba a borrarlos.","Keine Studiengänge mit diesen Filtern. Versuch, sie zu löschen.","Aucune formation avec ces filtres. Essaie de les effacer.","Nessun corso con questi filtri. Prova a cancellarli."],
@@ -3845,7 +3948,7 @@ RENDER.explorar=function(){
   else if(tb==="pessoas")h+=peopleList(pq.text);
   else if(tb==="site"&&q)h+=S.length?'<ul class="olist">'+S.slice(0,60).map(function(x){return'<li><div class="row" style="gap:.6rem;flex-wrap:nowrap"><span class="agic">'+ico(x.ic,16)+'</span><div class="stack-s"><button class="lnk" style="text-align:left;color:var(--ink);text-decoration:none;font-weight:600" type="button" '+x.a+'>'+esc(x.tit)+'</button><span class="xs m">'+esc(t(x.k))+(x.sub?' · '+esc(String(x.sub).slice(0,110)):'')+'</span></div></div></li>'}).join("")+'</ul>':emptyHTML(esc(t("Nada encontrado.")));
   else h+=progList(q);
-  return h+trayHTML();
+  return h;
 };
 
 /* ---------- sugestões ---------- */
@@ -3930,7 +4033,7 @@ drawChrome=function(){var g=document.getElementById("gq"),g2=document.getElement
   _dcS();
   var rail=document.querySelector("#rail .logo"),top=document.querySelector("#top .row1");
   if(rail&&!document.getElementById("gq"))rail.insertAdjacentHTML("afterend",'<div class="gsearch"><input class="fld" id="gq" type="search" autocomplete="off" placeholder="'+esc(t("Procurar no site…"))+'" aria-label="'+esc(t("Procurar no site"))+'"></div>');
-  if(top&&!document.getElementById("gq2"))top.insertAdjacentHTML("afterbegin",'<div class="gsearch global-search"><input class="fld" id="gq2" type="search" autocomplete="off" placeholder="Pesquisar no Stellamus" aria-label="'+esc(t("Procurar no site"))+'"></div>');
+  if(top&&!document.getElementById("gq2"))top.insertAdjacentHTML("afterbegin",'<div class="gsearch global-search"><input class="fld" id="gq2" type="search" autocomplete="off" placeholder="'+esc(t("Pesquisar no Stellamus"))+'" aria-label="'+esc(t("Procurar no site"))+'"></div>');
   var n1=document.getElementById("gq"),n2=document.getElementById("gq2");if(n1)n1.value=v1;if(n2)n2.value=v2;
   enhanceSearch(document.getElementById("rail"));enhanceSearch(document.getElementById("top"));
   if(st){var x=document.getElementById(st.id);if(x){x.focus({preventScroll:true});try{x.setSelectionRange(st.s,st.e)}catch(e){}if(SUG.open)drawSug(x)}}};
@@ -3942,14 +4045,14 @@ compareHTML=function(){
   var hits=q?PROGS.filter(visible).filter(function(p){return progMatch(p,q)}).sort(function(a,b){return a.nome.localeCompare(b.nome,"pt")||((instById(a.inst)||{}).nome||"").localeCompare((instById(b.inst)||{}).nome||"","pt")}):[];
   var ih=q&&pq.text?instMatches(pq.text).filter(function(i){return matchQ(i.nome+" "+i.cidade+" "+i.dist,pq.text)}).slice(0,6):[];
   var notIn=hits.filter(function(p){return CMP.indexOf("prog:"+p.id)<0});
-  var top='<section class="panel cmpfind"><h3>'+ico("explorar",18)+' '+esc(t("O que queres comparar?"))+'</h3><p class="xs m">'+esc(t("Escreve um tema ou parte do nome (ex.: psicologia, mestrado gestão, enfermagem porto). Aparecem os cursos de todas as instituições: junta os que quiseres, até {n}.",{n:CMPMAX}))+'</p>'+
-   '<input class="fld bigsearch" id="cmpq" type="search" data-flt="cmpq" data-sug="cmp" value="'+esc(q)+'" autocomplete="off" placeholder="'+esc(t("Ex.: psicologia, mestrado psicologia clínica, direito lisboa"))+'" aria-label="'+esc(t("Procurar o que comparar"))+'">'+
+  var top='<section class="panel cmpfind"><h3>'+ico("explorar",18)+' '+esc(t("O que queres comparar?"))+'</h3><p class="xs m">'+esc(t("Usa os botões Comparar nas fichas ou pesquisa aqui por tema."))+'</p>'+
+   '<input class="fld bigsearch" id="cmpq" type="search" data-flt="cmpq" data-sug="cmp" value="'+esc(q)+'" autocomplete="off" placeholder="'+esc(t("Pesquisar atividades, oportunidades ou cursos"))+'" aria-label="'+esc(t("Procurar o que comparar"))+'">'+
    (q?(hits.length||ih.length?'<div class="row sb"><span class="sm">'+esc(t("{n} cursos encontrados.",{n:hits.length}))+'</span>'+(notIn.length&&CMP.length<CMPMAX?'<button class="btn s" type="button" data-a="cmpall">'+esc(t("Juntar os primeiros {n}",{n:Math.min(CMPMAX-CMP.length,notIn.length)}))+'</button>':'')+'</div>'+
      (ih.length?'<div class="chips">'+ih.map(function(i){var on=CMP.indexOf("inst:"+i.id)>-1;return'<button class="chip" type="button" data-a="cmp" data-k="inst:'+esc(i.id)+'" aria-pressed="'+on+'">'+(on?"✓ ":"+ ")+esc(i.nome)+'</button>'}).join("")+'</div>':'')+
      '<ul class="cmplist">'+hits.slice(0,lim).map(function(p){var i=instById(p.inst)||{},on=CMP.indexOf("prog:"+p.id)>-1,dg=p.dg||{};return'<li><button class="cmpck" type="button" data-a="cmp" data-k="prog:'+esc(p.id)+'" aria-pressed="'+on+'" aria-label="'+esc(t(on?"Tirar da comparação":"Juntar à comparação"))+'">'+(on?ico("check",14):"")+'</button><div class="stack-s" style="gap:.1rem"><b>'+esc(p.nome)+'</b><span class="xs m">'+esc([t(p.nivel||""),i.nome,i.cidade,dg.vag?t("{n} vagas",{n:dg.vag}):"",dg.ult?t("último colocado {n}",{n:dg.ult}):""].filter(Boolean).join(" · "))+'</span></div></li>'}).join("")+'</ul>'+(hits.length>lim?'<button class="btn sec s" type="button" data-a="cmpmore">'+esc(t("Ver mais ({n})",{n:hits.length-lim}))+'</button>':'')
      :'<div class="note">'+esc(pq.lv?t("Ainda não há {l} com «{q}» na lista. Os CTeSP, pós-graduações e doutoramentos são juntados pelos membros: junta o teu no fim desta página.",{l:lvName(pq.lv).toLowerCase(),q:pq.text}):t("Nada encontrado. Experimenta só uma palavra, por exemplo o tema."))+'</div>'):'')+'</section>';
   var tbl=_cmpS();tbl=tbl.replace(/^<div class="row">[\s\S]*?<\/div><p class="xs m">[\s\S]*?<\/p>/,"");
-  return top+(CMP.length?'<div class="row sb"><h3>'+esc(t("A comparar ({n})",{n:CMP.length}))+'</h3><button class="btn ghost s" type="button" data-a="cmpclear">'+esc(t("Limpar tudo"))+'</button></div>':'')+tbl};
+  return top+extraComparisonPicker(q)+(CMP.length?'<div class="row sb"><h3>'+esc(t("A comparar ({n})",{n:CMP.length}))+'</h3><button class="btn ghost s" type="button" data-a="cmpclear">'+esc(t("Limpar tudo"))+'</button></div>':'')+tbl};
 ACT.cmpall=function(){var q=F.cmpq||"";PROGS.filter(visible).filter(function(p){return progMatch(p,q)}).sort(function(a,b){return a.nome.localeCompare(b.nome,"pt")}).forEach(function(p){if(CMP.length<CMPMAX&&CMP.indexOf("prog:"+p.id)<0)CMP.push("prog:"+p.id)});render()};
 ACT.cmpmore=function(){F.cmplim=(F.cmplim||30)+40;render()};
 
@@ -3983,8 +4086,8 @@ ACT.cmpmore=function(){F.cmplim=(F.cmplim||30)+40;render()};
    ===================================================================== */
 OPEN.howjoin=true;
 function loginHTML(){
-  if(window.UO_AUTH&&UO_AUTH.pending())return '<p class="note" role="status">A confirmar a sessão…</p>';
-  if(window.UO_AUTH&&!UO_AUTH.hosted)return '<p class="note">Para receber e abrir um link de entrada, usa o endereço online do Stellamus. Nesta cópia podes explorar a apresentação.</p>';
+  if(window.UO_AUTH&&UO_AUTH.pending())return '<p class="note" role="status">'+esc(t("A confirmar a sessão…"))+'</p>';
+  if(window.UO_AUTH&&!UO_AUTH.hosted)return '<p class="note">'+esc(t("Para receber e abrir um link de entrada, usa o endereço online do Stellamus. Nesta cópia podes explorar a apresentação."))+'</p>';
   if(!window.UO_AUTH||!UO_AUTH.configured)return'<p class="note w">'+esc(t("O site ainda não está ligado à base de dados. Segue o guia de instalação para preencher o ficheiro config.js."))+'</p>';
   return(UO_AUTH.error()?'<p class="note" role="alert">'+esc(UO_AUTH.error())+'</p>':'')+'<form class="panel" data-f="login" style="--sec:var(--c-mural)"><h3>'+esc(t("Entrar ou criar conta"))+'</h3><p class="sm m">'+esc(t("A conta é grátis. Escreve o teu email e enviamos-te um link para entrares sem palavra-passe."))+'</p><div class="row" style="flex-wrap:nowrap"><input class="fld" id="lg-email" type="email" autocomplete="email" required placeholder="nome@email.pt" aria-label="Email"><button class="btn" type="submit">'+esc(t("Enviar link"))+'</button></div><span class="msg" id="lg-msg"></span><p class="xs m">'+esc(t("Ao entrares, aceitas a"))+' <a href="privacidade.html">'+esc(t("política de privacidade e os termos"))+'</a>.</p></form>';
 }
@@ -5079,17 +5182,16 @@ function nb(n){return n?'<span class="nb">'+(n>9?"9+":n)+'</span>':''}
 function iconsHTML(){var m=cnt("mensagens"),s=DB?sinais().filter(function(item){return item.k!=="msg"&&item.ts>SINSEEN}).length:0;
   return(DB&&myConvs().length?'<button type="button" data-a="inbox" aria-label="'+esc(t("Mensagens"))+(m?", "+m+" "+esc(t("novas")):"")+'" title="'+esc(t("Mensagens"))+'">'+MSG+nb(m)+'</button>':'')+
    (DB?'<button type="button" data-go="sinais" aria-label="'+esc(t("Notificações"))+(s?", "+s+" "+esc(t("novas")):"")+'" title="'+esc(t("Notificações"))+'">'+BELL+nb(s)+'</button>':'')+
-   (DB?'<button class="orbit-trigger" type="button" data-anfme="1" aria-label="Abrir a tua constelação" aria-haspopup="dialog" aria-expanded="'+(SHEET==="me")+'">'+ident(UID,28)+'</button>':'')}
+   profileOrbitButton(SHEET==="me")}
 function tabsHTML2(){var cg=groupOf(V);
   return GROUPS.map(function(g){return g.k}).map(function(k){var g=GROUPS.filter(function(x){return x.k===k})[0],sum=k==="mais"?cnt("sinais"):g.items.reduce(function(a,it){return a+cnt(it[0])},0),cur=cg===k;
     return'<button type="button" class="'+(cur?'cur':'')+'" style="--c:'+g.c+'" data-go="'+g.items[0][0]+'" aria-pressed="'+cur+'"'+(cur?' aria-current="page"':'')+'><span class="ti">'+ico(g.ic,18)+'</span>'+esc(t(g.short||g.n))+(sum?'<span class="badge-n" style="position:absolute;margin:-30px 0 0 26px">'+sum+'</span>':'')+'</button>'}).join("")}
 var SHEET=null;
 function sheetHTML(k){if(k==="me"){
   var friends=myOrbit();
-  return '<section class="sh constellation-menu" role="dialog" aria-label="A tua constelação"><div class="row sb"><h3>A tua constelação</h3><button type="button" class="btn sec s" data-anfme="1" aria-label="Fechar constelação">×</button></div>'+
-   '<button class="si" type="button" data-go="espaco">Perfil, avatar e definições</button>'+
-   '<button class="si" type="button" data-a="goto" data-v="explorar" data-t="pessoas">Pesquisar e adicionar pessoas</button>'+
-   '<h4>Amigos · '+friends.length+'</h4>'+(friends.length?friends.map(function(uid){return '<button class="si" type="button" data-a="user" data-id="'+esc(uid)+'">'+ident(uid,28)+' '+esc(nameOf(uid))+'</button>'}).join(""):'<p class="sm m">As pessoas que adicionares aparecem aqui.</p>')+'</section>';
+  return '<section class="sh constellation-menu" role="dialog" aria-label="'+esc(t("A tua constelação"))+'"><div class="row sb"><h3>'+esc(t("A tua constelação"))+'</h3><button type="button" class="btn ghost s" data-anfme="1" aria-label="'+esc(t("Fechar"))+'">×</button></div>'+
+   (DB?orbitViz(friends,220,false)+'<button class="si" type="button" data-go="espaco">'+esc(t("O meu perfil"))+'</button><button class="si" type="button" data-a="goto" data-v="explorar" data-t="pessoas">'+esc(t("Juntar pessoas"))+'</button>':
+   '<button class="si" type="button" data-a="visitorlogin">'+esc(t("Entrar ou criar conta"))+'</button>')+'</section>';
  }
  var g=GROUPS.find(function(x){return x.k===k});if(!g)return"";
   var langs=k==="me"?'<label class="lang"><span class="lbl">'+esc(t("Língua"))+'</span><select class="fld" id="langPick2" aria-label="'+esc(t("Língua"))+'">'+LANGS.map(function(l){return'<option value="'+l[0]+'"'+(l[0]===L?" selected":"")+'>'+l[1]+'</option>'}).join("")+'</select></label>':'';
@@ -5103,7 +5205,7 @@ drawChrome=function(){_dcR();
   if(lsx("anf.mini")==="1")document.body.classList.add("anf-mini");
   try{var gc=GROUPS.filter(function(x){return x.k===groupOf(V)})[0];document.documentElement.style.setProperty("--sec",gc?gc.c:C.a)}catch(e){}
   var r=document.getElementById("rail");if(r)r.innerHTML=railHTML();
-  var tp=document.getElementById("top");if(tp){var row=tp.querySelector(".row1");if(row){row.querySelectorAll(".me,#langPick2").forEach(function(el){el.remove()});if(!row.querySelector(".anfic")){var w=document.createElement("span");w.className="anfic anfbar";w.style.cssText="display:flex;margin:0;padding:0;position:static;gap:.3rem";row.appendChild(w)}row.querySelector(".anfic").innerHTML=iconsHTML()}}
+  var tp=document.getElementById("top");if(tp){var row=tp.querySelector(".row1");if(row){row.querySelectorAll(".me").forEach(function(el){el.remove()});if(!row.querySelector(".anfic")){var w=document.createElement("span");w.className="anfic anfbar";w.style.cssText="display:flex;margin:0;padding:0;position:static;gap:.3rem";row.appendChild(w)}row.querySelector(".anfic").innerHTML=iconsHTML()}}
   ensureTabs();drawSheet()};
 document.addEventListener("click",function(e){
   var g=e.target.closest&&e.target.closest("[data-anfg]");if(g){var k=g.getAttribute("data-anfg");
@@ -5552,7 +5654,7 @@ function card(a){var c=cat(a.cat),sv=saved("ativ:"+a.id),it=isInt(a.id);
   return'<article class="panel ax-card" style="--c:'+c.c+'" aria-labelledby="axt-'+esc(a.id)+'">'+art(a)+'<div class="ax-body"><div class="ax-tags"><span class="ax-tag" style="color:'+c.c+'">'+esc(t(c.n))+'</span><span class="ax-tag">'+esc(lab(NIV,a.nivel)||t("Todos os níveis"))+'</span>'+(a.fmt&&a.fmt!=="presencial"?'<span class="ax-tag">'+esc(lab(FMT,a.fmt))+'</span>':'')+'</div>'+
    '<h3 id="axt-'+esc(a.id)+'">'+esc(a.tit)+'</h3><p>'+esc(String(a.desc||"").slice(0,150))+(String(a.desc||"").length>150?'…':'')+'</p>'+
    '<div class="ax-meta"><span>'+svg(IK.cal,15)+esc(when(a))+'</span><span>'+svg(IK.pin,15)+esc(where(a)||"–")+'</span><span>'+svg(IK.org,15)+esc(a.demo?t(a.org):a.org||"–")+'</span>'+(a.vagas?'<span>'+svg(IK.seat,15)+esc(t("{n} vagas",{n:a.vagas}))+'</span>':'')+'</div>'+
-   (window.anfWho&&!a.demo?anfWho("ativ-"+a.id,1):'')+'<div class="ax-acts"><button class="ax-btn" type="button" data-a="axsave" data-id="'+esc(a.id)+'" aria-pressed="'+sv+'">'+svg(IK.bm,15)+esc(t(sv?"Guardada":"Guardar"))+'</button><button class="ax-btn" type="button" data-a="axint" data-id="'+esc(a.id)+'" aria-pressed="'+it+'">'+svg(IK.star,15)+esc(t(it?"Com interesse":"Tenho interesse"))+'</button><button class="ax-btn pri" type="button" data-a="ativ" data-id="'+esc(a.id)+'">'+esc(t("Ver detalhes"))+'</button></div></div></article>'}
+   (window.anfWho&&!a.demo?anfWho("ativ-"+a.id,1):'')+'<div class="ax-acts"><button class="ax-btn" type="button" data-a="axsave" data-id="'+esc(a.id)+'" aria-pressed="'+sv+'">'+svg(IK.bm,15)+esc(t(sv?"Guardada":"Guardar"))+'</button><button class="ax-btn" type="button" data-a="axint" data-id="'+esc(a.id)+'" aria-pressed="'+it+'">'+svg(IK.star,15)+esc(t(it?"Com interesse":"Tenho interesse"))+'</button><button class="ax-btn pri" type="button" data-a="ativ" data-id="'+esc(a.id)+'">'+esc(t("Ver detalhes"))+'</button>'+cmpBtn("ativ:"+a.id)+'</div></div></article>'}
 
 /* ---------------- filtros ---------------- */
 function FX(){return F.ax||(F.ax={q:"",cat:"",dist:"",quando:"",data:"",preco:"",nivel:"",fmt:""})}
@@ -5630,20 +5732,21 @@ function detailHTML(id){var a=find(id);
   if(!a)return'<button class="lnk ax-back" type="button" data-a="back">← '+esc(t("Voltar"))+'</button>'+emptyHTML(esc(t("Esta atividade já não existe ou ainda não foi publicada.")));
   var c=cat(a.cat),sv=saved("ativ:"+a.id),it=isInt(a.id),own=a.uid&&a.uid===UID,ev={titulo:a.tit,data:a.data,hora:a.hora,dur:a.fim&&a.hora?Math.max(30,(+a.fim.slice(0,2)*60+ +a.fim.slice(3))-(+a.hora.slice(0,2)*60+ +a.hora.slice(3))):60,desc:a.desc,local:where(a)};
   var cal=a.data&&typeof gcal==="function"?'<a class="ax-btn" href="'+esc(gcal(ev))+'" target="_blank" rel="noopener">+ Google</a><a class="ax-btn" href="'+esc(outl(ev))+'" target="_blank" rel="noopener">+ Outlook</a>':'';
-  var h='<button class="lnk ax-back" type="button" data-a="back">← '+esc(t("Voltar ao Explorar"))+'</button>';
+  var h='<button class="lnk ax-back" type="button" data-a="back">← '+esc(t("Voltar"))+'</button>';
   if(a.estado!=="publicada")h+='<p class="note">'+esc(t("Estado"))+': <span class="ax-st '+esc(a.estado)+'">'+esc(t(ESTN[a.estado]||a.estado))+'</span> · '+esc(t("Esta página só é visível para ti e para a administração."))+'</p>';
   h+='<div class="ax-det" style="--c:'+c.c+'"><div class="stack">'+art(a,"ax-hero")+'<div class="stack-s"><div class="ax-tags"><span class="ax-tag" style="color:'+c.c+'">'+esc(t(c.n))+'</span>'+(a.demo?'<span class="ax-tag" style="background:#FFC857;color:#2B1B2F">'+esc(t("Demonstração: exemplo ilustrativo, não é um evento real"))+'</span>':'')+'</div><h1 style="margin:.2rem 0;font:800 clamp(1.6rem,3.4vw,2.3rem)/1.1 var(--f-disp)">'+esc(a.tit)+'</h1><p class="wrap" style="white-space:pre-line;line-height:1.55">'+esc(a.desc)+'</p></div>'+
-   '<div class="ax-acts"><button class="ax-btn" type="button" data-a="axsave" data-id="'+esc(a.id)+'" aria-pressed="'+sv+'">'+svg(IK.bm,15)+esc(t(sv?"Guardada":"Guardar"))+'</button><button class="ax-btn" type="button" data-a="axint" data-id="'+esc(a.id)+'" aria-pressed="'+it+'">'+svg(IK.star,15)+esc(t(it?"Com interesse":"Tenho interesse"))+'</button>'+cal+'</div>'+
+   '<div class="ax-acts"><button class="ax-btn" type="button" data-a="axsave" data-id="'+esc(a.id)+'" aria-pressed="'+sv+'">'+svg(IK.bm,15)+esc(t(sv?"Guardada":"Guardar"))+'</button><button class="ax-btn" type="button" data-a="axint" data-id="'+esc(a.id)+'" aria-pressed="'+it+'">'+svg(IK.star,15)+esc(t(it?"Com interesse":"Tenho interesse"))+'</button>'+cmpBtn("ativ:"+a.id)+cal+'</div>'+
    (window.anfWho&&!a.demo?anfWho("ativ-"+a.id):'')+
    '<div class="ax-soon" aria-label="'+esc(t("Em breve"))+'"><b>'+esc(t("Gostava de ir com alguém"))+' <span class="ax-tag">'+esc(t("Em breve"))+'</span></b><span class="sm m">'+esc(t("Vais poder dizer que gostavas de companhia para esta atividade. Só aparece quem autorizar expressamente, sem contactos nem localização exata, com opções de denúncia e bloqueio. Não é uma aplicação de encontros."))+'</span></div></div>'+
    '<aside class="panel stack"><dl class="ax-dl"><dt>'+esc(t("Quando"))+'</dt><dd>'+esc(when(a)||"–")+'</dd><dt>'+esc(t("Onde"))+'</dt><dd>'+esc(where(a)||"–")+'</dd><dt>'+esc(t("Formato"))+'</dt><dd>'+esc(lab(FMT,a.fmt)||"–")+'</dd><dt>'+esc(t("Preço"))+'</dt><dd>'+esc(money(a.preco))+'</dd><dt>'+esc(t("Nível"))+'</dt><dd>'+esc(lab(NIV,a.nivel)||"–")+'</dd>'+(a.vagas?'<dt>'+esc(t("Vagas"))+'</dt><dd>'+esc(a.vagas)+'</dd>':'')+'<dt>'+esc(t("Organizador"))+'</dt><dd>'+esc(a.demo?t(a.org):a.org)+(a.orgt?'<br><small class="m" style="font-weight:400">'+esc(lab(ORGT,a.orgt))+'</small>':'')+'</dd></dl>'+
-   (okURL(a.link)&&!a.demo?'<a class="btn" href="'+esc(a.link)+'" target="_blank" rel="noopener noreferrer">'+svg(IK.ext,16)+' '+esc(t("Inscrição no site do organizador"))+'</a><span class="xs m">'+esc(t("Abre um site externo. A Anfitriu não trata das inscrições nem de pagamentos."))+'</span>':a.demo?'<button class="btn" type="button" disabled>'+esc(t("Inscrição (indisponível na demonstração)"))+'</button>':'<span class="sm m">'+esc(t("Sem inscrição: basta aparecer."))+'</span>')+
+   (okURL(a.link)&&!a.demo?'<a class="btn" href="'+esc(a.link)+'" target="_blank" rel="noopener noreferrer">'+svg(IK.ext,16)+' '+esc(t("Inscrição no site do organizador"))+'</a><span class="xs m">'+esc(t("Abre um site externo. A Anfitriu não trata das inscrições nem de pagamentos."))+'</span>':a.demo?'<button class="btn" type="button" disabled>'+esc(t("Inscrição (indisponível na demonstração)"))+'</button>':'<span class="sm m">'+esc(t("Página oficial a confirmar"))+'</span>')+
    (own?'<div class="row" style="gap:6px"><button class="btn sec s" type="button" data-a="axedit" data-id="'+esc(a.id)+'">'+esc(t("Editar"))+'</button></div>':'')+
    (!a.demo&&!own&&DB?'<button class="lnk xs m" type="button" data-a="axrep" data-id="'+esc(a.id)+'" style="justify-self:start">'+esc(t(F.axRep===a.id?"Escolhe o motivo em baixo":"Denunciar esta atividade"))+'</button>'+(F.axRep===a.id?'<div class="row" style="gap:6px;flex-wrap:wrap">'+["Informação falsa","Spam ou publicidade","Conteúdo impróprio","Perigoso ou ilegal"].map(function(r){return'<button class="btn ghost s" type="button" data-a="axrep2" data-id="'+esc(a.id)+'" data-r="'+esc(r)+'">'+esc(t(r))+'</button>'}).join("")+'</div>':''):'')+
    '</aside></div>';
   return h}
 RENDER.atividades=function(){
   if(DET&&DET.k==="ativ")return detailHTML(DET.id);
+  if(DET&&DET.k==="clube")return clubDetail(DET.id);
   var tb=curTab("atividades","explorar"),tabs=[["explorar","Descobrir"],["clubes","Clubes e grupos"],["planos","Os meus planos",(arr(ATME.interesse).length+SAVES.filter(function(s){return s.k.indexOf("ativ:")===0||s.k.indexOf("clube:")===0}).length)||null],["publicar","Publicar e gerir"]];
   if(OWNER)tabs.push(["validar","Por validar",pend().length]);
   var h=secHead(t("atividades"),t("Atividades"),esc(t("Descobre workshops, eventos, hobbies e clubes.")))+tabsHTML("atividades",tabs);
@@ -5821,7 +5924,7 @@ function card(c){var tp=TP[c.tp],sv=saved("clube:"+c.id);
    (window.anfWho?anfWho("clube-"+c.id,1):'')+'<div class="ax-acts">'+(okU(c.link)?'<a class="ax-btn pri" href="'+esc(c.link)+'" target="_blank" rel="noopener noreferrer">'+ic(MI.ext,15)+esc(t("Site ou contacto"))+'</a>':'')+
    '<button class="ax-btn" type="button" data-a="clsave" data-id="'+esc(c.id)+'" aria-pressed="'+sv+'">'+ic(MI.bm,15)+esc(t(sv?"Guardada":"Guardar"))+'</button></div>'+
    (okU(c.fonte)?'<a class="cl-src" href="'+esc(c.fonte)+'" target="_blank" rel="noopener noreferrer">'+esc(t("Fonte"))+' · '+esc(mes(c.fd))+'</a>':'')+
-   '</div></article>'}
+   '</div><div class="ax-acts"><button type="button" class="btn sec s" data-a="clubdetail" data-id="'+esc(c.id)+'">'+esc(t("Ver detalhes"))+'</button>'+cmpBtn("clube:"+c.id)+'</div></article>'}
 var css=document.createElement("style");css.textContent=[
 '.cl-band{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 14px;background:linear-gradient(135deg,color-mix(in srgb,var(--c) 38%,transparent),color-mix(in srgb,var(--c) 10%,transparent));border-bottom:1px solid rgba(255,255,255,.08)}',
 '.cl-ic{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:var(--c);color:#0E1326}',
@@ -5833,6 +5936,7 @@ var css=document.createElement("style");css.textContent=[
 '.cl-fil label{display:grid;gap:4px;font-size:.78rem;color:var(--muted)}'
 ].join("\n");document.head.appendChild(css);
 
+window.stellamusClubs=function(){return CL.map(function(c){return {id:c.id,tit:c.n,tipo:TP[c.tp].n,desc:c.d,cidade:c.onde,dist:c.dist,horario:c.q,preco:c.p,link:c.link||c.fonte}})};
 window.anfClubesHTML=function(){var f=FC(),L0=CL.filter(match);
   var tps=Object.keys(TP);
   var chips='<div class="ax-cats" role="group" aria-label="'+esc(t("Categorias"))+'"><button class="ax-cat" type="button" style="--c:#F4F1FF" data-a="cltp" data-k="" aria-pressed="'+(!f.tp)+'"><span class="i">'+ic('<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>',16)+'</span>'+esc(t("Todos os tipos"))+'</button>'+tps.map(function(k){var x=TP[k];return'<button class="ax-cat" type="button" style="--c:'+x.c+'" data-a="cltp" data-k="'+k+'" aria-pressed="'+(f.tp===k)+'"><span class="i">'+ic(x.ic,16)+'</span>'+esc(t(x.n))+'</button>'}).join("")+'</div>';
@@ -6148,7 +6252,7 @@ orbitViz=function(list,size,demo){
       h+='<span class="cst-p '+cls+(act?' live':'')+'" style="left:'+(s.x-s.d/2).toFixed(1)+'px;top:'+(s.y-s.d/2).toFixed(1)+'px;width:'+s.d+'px;height:'+s.d+'px;animation-delay:'+(i%6)*.7+'s">'+(demo?'<span class="av">'+avatarSVG(avSeed(s.u))+'</span>':'<button type="button" data-a="user" data-id="'+esc(s.u)+'" title="'+esc(nameOf(s.u))+'" aria-label="'+esc(nameOf(s.u))+'">'+ident(s.u,s.d)+'</button>')+'</span>'}
     else{var e=Math.max(8,Math.round(s.d*.42));h+='<span class="cst-e" style="left:'+(s.x-e/2).toFixed(1)+'px;top:'+(s.y-e/2).toFixed(1)+'px;width:'+e+'px;height:'+e+'px;animation-delay:'+(i%5)*.6+'s">'+sparkle(e/2)+(demo?'':'<button type="button" data-a="goto" data-v="explorar" data-t="pessoas" aria-label="'+esc(t("Lugar livre: convida alguém para o teu anfiteatro"))+'" title="'+esc(t("Lugar livre: convida alguém para o teu anfiteatro"))+'"></button>')+'</span>'}});
   var R=Math.round(size*(small?.13:.1)),ring=R*2;
-  h+='<div class="cst-me" style="left:'+(C-R)+'px;top:'+(C-R)+'px;width:'+ring+'px;height:'+ring+'px"><div class="ring" style="width:'+ring+'px;height:'+ring+'px;background:conic-gradient(#FFC857 0 '+Math.round(lvl.f*100)+'%,rgba(255,244,234,.18) '+Math.round(lvl.f*100)+'% 100%)"><div class="in" style="width:'+Math.round(ring*.84)+'px;height:'+Math.round(ring*.84)+'px">'+(demo?'<span class="av">'+avatarSVG(avSeed("tour-me"))+'</span>':ident(UID,Math.round(ring*.84)))+'</div></div><span class="cst-lv">'+esc(t("NV"))+' '+lvl.lv+'</span></div>';
+  h+='<div class="cst-me" style="left:'+(C-R)+'px;top:'+(C-R)+'px;width:'+ring+'px;height:'+ring+'px"><div class="ring" style="width:'+ring+'px;height:'+ring+'px;background:conic-gradient(#FFC857 0 '+Math.round(lvl.f*100)+'%,rgba(255,244,234,.18) '+Math.round(lvl.f*100)+'% 100%)"><div class="in" style="width:'+Math.round(ring*.84)+'px;height:'+Math.round(ring*.84)+'px">'+(demo?'<span class="av">'+avatarSVG(avSeed("tour-me"))+'</span>':ident(UID,Math.round(ring*.84)))+'</div></div>'+(demo?'':'<button class="orbit-center-action" type="button" data-go="espaco" aria-label="'+esc(t("O meu perfil"))+'"></button>')+'<span class="cst-lv">'+esc(t("NV"))+' '+lvl.lv+'</span></div>';
   h+='</div>';
   if(!demo){var live=people.filter(function(u){return typeof anfActiveToday==="function"&&anfActiveToday(u)}).length;
     h+='<div class="anf-legend"><span><b>'+Math.min(n,total)+'</b>/'+total+' '+esc(t("lugares"))+'</span><span><i class="dot live"></i>'+esc(t("{n} ativos hoje",{n:live}))+'</span><span><i class="dot front"></i>'+esc(t("1.ª fila: mais em comum"))+'</span></div>'}
@@ -6374,8 +6478,7 @@ function askInstall(){
      function(){set("anf.installAsk",String(Date.now()));setTimeout(askNotif,1200)})}
   else askNotif()}
 /* espera que a pessoa veja a página primeiro; se ainda não entrou, volta a tentar depois de entrar */
-setTimeout(askInstall,3500);
-var tries=0,iv=setInterval(function(){tries++;if(open||tries>40){if(tries>40)clearInterval(iv);return}if(window.UID&&canNotif()&&due("anf.notifAsk")&&(!canInstall()||!due("anf.installAsk"))){clearInterval(iv);askNotif()}},15000);
+var tries=0,iv=setInterval(function(){tries++;if(open||tries>40){if(tries>40)clearInterval(iv);return}if(window.UID&&canNotif()&&due("anf.notifAsk")&&!document.querySelector(".study-selection")){clearInterval(iv);askNotif()}},15000);
 
 /* ---------- avisar quando há notificações novas e o site está em segundo plano ---------- */
 var LAST=+get("anf.notifLast")||Date.now();
@@ -6443,31 +6546,6 @@ var t2=false;function done2(p){if(t2)return;t2=true;setTimeout(function(){t2=fal
 new MutationObserver(function(){ncard()}).observe(document.body,{childList:true,subtree:true});
 var ncss=document.createElement("style");ncss.textContent='.anfnc{display:grid;grid-template-columns:44px 1fr;gap:12px;align-items:start}.anfnc .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:rgba(227,207,158,.14);color:#E3CF9E}html.anf-light .anfnc .ic{background:rgba(122,99,39,.1);color:#7A6327}.anfnc p{margin:.2rem 0 .6rem;font-size:.9rem}.anfnc .row{display:flex;gap:8px;flex-wrap:wrap}';document.head.appendChild(ncss);
 
-/* ---------- bola fixa e bem visível: descarregar a app ---------- */
-var FT={"Descarregar a app":["Descarregar a app","Get the app","Descargar la app","App holen","Télécharger l'app","Scarica l'app"]};
-function ft(k){var i=LI[L];return FT[k][i==null?0:i]}
-var DL='<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>';
-var fcss=document.createElement("style");fcss.textContent=[
-'.anffab{position:fixed;right:22px;bottom:22px;z-index:70;display:flex;align-items:center;gap:10px;border:0;padding:0;background:none;cursor:pointer;font:700 .9rem var(--f-body,inherit)}',
-'.anffab .b{position:relative;width:62px;height:62px;border-radius:50%;display:grid;place-items:center;background:#E3CF9E;color:#0E1326;box-shadow:0 10px 30px -8px rgba(227,207,158,.7),0 0 0 4px rgba(14,19,38,.85)}',
-'.anffab .b:after{content:"";position:absolute;inset:-6px;border-radius:50%;border:2px solid #E3CF9E;opacity:.7;animation:anffab 2.2s ease-out 4;animation-fill-mode:forwards}',
-'@keyframes anffab{0%{transform:scale(.9);opacity:.8}100%{transform:scale(1.35);opacity:0}}',
-'@media (prefers-reduced-motion:reduce){.anffab .b:after{animation:none;opacity:.5}}',
-'.anffab .l{order:-1;padding:9px 14px;border-radius:999px;background:#0E1326;color:#F4F1FF;border:1px solid rgba(227,207,158,.55);white-space:nowrap;box-shadow:0 8px 24px -10px rgba(0,0,0,.6)}',
-'.anffab:hover .b{transform:scale(1.05)}.anffab:focus-visible .b{outline:3px solid #6EE7F9;outline-offset:4px}',
-'html.anf-light .anffab .b{background:#7A6327;color:#fff;box-shadow:0 10px 30px -8px rgba(122,99,39,.6),0 0 0 4px #fff}',
-'html.anf-light .anffab .b:after{border-color:#7A6327}',
-'html.anf-light .anffab .l{background:#fff;color:#1C1A33;border-color:rgba(122,99,39,.5)}',
-'@media (max-width:820px){.anffab{right:14px;bottom:calc(92px + env(safe-area-inset-bottom,0px))}.anffab .b{width:56px;height:56px}.anffab .l{font-size:.82rem;padding:7px 12px}}',
-'body.anf-hasask .anffab{display:none}'
-].join("\n");document.head.appendChild(fcss);
-function fabPlace(){var has=document.querySelector(".anffab");var show=canInstall();
-  if(!show){if(has)has.remove();return}
-  if(!has){has=document.createElement("button");has.type="button";has.className="anffab";has.setAttribute("data-pwa","install");document.body.appendChild(has)}
-  var lab=ft("Descarregar a app");if(has.getAttribute("aria-label")!==lab){has.setAttribute("aria-label",lab);has.innerHTML='<span class="l">'+esc(lab)+'</span><span class="b">'+DL+'</span>'}
-  document.body.classList.toggle("anf-hasask",!!open)}
-setInterval(fabPlace,1500);fabPlace();
-window.addEventListener("appinstalled",function(){var f=document.querySelector(".anffab");if(f)f.remove()});
 window.anfPush={sub:pushSub,test:pushTest,off:pushOff};
 window.anfAsk={install:askInstall,notif:askNotif};
 })();
@@ -6651,6 +6729,7 @@ function homeQuestionButton(label,starter){
  return '<button class="btn sec s" type="button" data-a="homequestion" data-starter="'+esc(starter)+'">'+label+'</button>';
 }
 ACT.homequestion=function(data){
+ if(!DB){ACT.visitorlogin();return}
  if(!canW(null,true))return;
  if(!OPEN.homequestion){F.questionStarter=data.starter||"";F.questionTarget="";OPEN.homequestion=true}
  else{var current=$("db-tit");if(current&&!current.value.trim())current.value=data.starter||""}
@@ -6742,10 +6821,10 @@ var css=[
 'html.anf-light .scroll table th:first-child{background:#fff}'
 ].join("\n");
 var st=document.createElement("style");st.id="anf-foco";st.textContent=css;document.head.appendChild(st);
-function jump(view,label){return '<button type="button" class="btn sec s" data-go="'+view+'">'+label+'</button>'}
-function peopleJump(){return '<button type="button" class="btn sec s" data-a="goto" data-v="explorar" data-t="pessoas">Encontrar pessoas</button>'}
+function jump(view,label){return '<button type="button" class="btn sec s" data-go="'+view+'">'+esc(t(label))+'</button>'}
+function peopleJump(){return '<button type="button" class="btn sec s" data-a="goto" data-v="explorar" data-t="pessoas">'+esc(t("Encontrar pessoas"))+'</button>'}
 function disclose(title,body){return '<details class="panel tight"><summary>'+title+'</summary><div class="stack-s">'+body+'</div></details>'}
-function help(message){return '<details class="inline-help"><summary aria-label="Como funciona">!</summary><p role="note">'+message+'</p></details>'}
+function help(message){return '<details class="inline-help"><summary aria-label="'+esc(t("Como funciona"))+'">!</summary><p role="note">'+esc(t(message))+'</p></details>'}
 function demoCard(title,body,meta){
  return '<article class="panel tight preview-card"><span class="tag">Exemplo</span><h4>'+title+'</h4><p>'+body+'</p>'+(meta?'<small class="m">'+meta+'</small>':'')+'</article>';
 }
@@ -6758,7 +6837,7 @@ function visitorPreview(content){
 }
 ACT.visitorlogin=function(){
  go("inicio");
- requestAnimationFrame(function(){var field=$("lg-email");if(field){field.scrollIntoView({block:"center"});field.focus({preventScroll:true})}});
+ requestAnimationFrame(function(){var card=$("home-login"),field=$("lg-email");if(card){card.open=true;card.scrollIntoView({block:"nearest"})}if(field)field.focus({preventScroll:true})});
 };
 lockedHTML=function(what){
  if(DB)return "";
@@ -6792,21 +6871,10 @@ RENDER.skills=function(){
  skillsHTML()+'<section class="stack-s"><h3>As minhas trocas</h3>'+(DB?trocasHTML():visitorPreview(peopleDemo))+'</section>';
 };
 ["Formação curta","Curso online"].forEach(function(n){if(!NIVEIS.includes(n))NIVEIS.push(n)});
-var comparisonOpen=false, reviewsOpen=false, comparisonMinimized=false;
+var comparisonOpen=false, reviewsOpen=false;
 ACT.minimizestudycompare=function(){comparisonMinimized=true;render()};
 ACT.restorestudycompare=function(){comparisonMinimized=false;render()};
-ACT.viewstudycompare=function(){
- comparisonOpen=true;render();
- requestAnimationFrame(function(){var target=$("study-comparison");if(target){target.focus({preventScroll:true});target.scrollIntoView({block:"start"})}});
-};
-function studySelection(){
- if(!CMP.length){comparisonMinimized=false;return ""}
- if(comparisonMinimized)return '<button class="btn sec s study-reopen" data-a="restorestudycompare" type="button">Seleção ('+CMP.length+')</button>';
- return '<aside class="panel study-selection" aria-label="Seleção para comparar"><div class="row">'+
- CMP.map(function(key){return '<button class="chip" data-a="cmp" data-k="'+esc(key)+'" type="button" aria-label="Remover '+esc(targetName(key))+'">'+esc(targetName(key))+' ×</button>'}).join("")+
- '</div><button class="btn s" data-a="viewstudycompare" type="button"'+(CMP.length<2?' disabled':'')+'>Ver comparação ('+CMP.length+')</button>'+
- (CMP.length<2?'<small>Seleciona mais uma opção.</small>':'')+'<button type="button" class="btn ghost s study-close" data-a="minimizestudycompare" aria-label="Recolher barra de comparação" title="Recolher">×</button></aside>';
-}
+ACT.viewstudycompare=function(){go("avaliacoes",null,"comparar")};
 ACT.studycompare=function(){comparisonOpen=!comparisonOpen;render()};
 ACT.studyreviews=function(){reviewsOpen=!reviewsOpen;render()};
 RENDER.explorar=function(){
@@ -6817,9 +6885,9 @@ RENDER.explorar=function(){
   var institutions=query?instMatches(query).slice(0,8):[];
   if(window.AnfExplorar&&query)AnfExplorar.all().filter(function(x){return matchQ([x.tit,x.desc,x.cidade].join(" "),query)}).slice(0,8).forEach(function(x){hits.push({k:"Atividade",tit:x.tit,a:'data-a="ativ" data-id="'+esc(x.id)+'"'})});
   return secHead("pesquisa","Pesquisa geral","Resultados para «"+esc(query)+"»")+
-   '<section class="stack-s"><h3>Cursos e formação</h3>'+progList(query,true)+'</section>'+
+   '<section class="stack-s"><h3>'+esc(t("Cursos e formação"))+'</h3>'+progList(query,true)+'</section>'+
    '<div class="social-home"><section class="panel stack-s"><h3>No Stellamus</h3>'+
-   (hits.length?hits.map(function(hit){return '<button class="lnk" type="button" '+hit.a+'>'+esc(hit.k+" · "+hit.tit)+'</button>'}).join(""):'<p class="sm m">Sem resultados na comunidade.</p>')+
+   (hits.length?hits.map(function(hit){return '<button class="lnk" type="button" '+hit.a+'>'+esc(hit.k+" · "+hit.tit)+'</button>'}).join(""):'<p class="sm m">'+esc(t("Sem resultados na comunidade."))+'</p>')+
    '</section><div class="stack-s"><section class="panel stack-s"><h3>Formação e instituições</h3>'+
    institutions.map(function(institution){return '<button class="lnk" type="button" data-a="inst" data-id="'+esc(institution.id)+'">'+esc(institution.nome)+'</button>'}).join("")+
    jump("explorar","Filtrar cursos e formação")+'</section>'+
@@ -6827,17 +6895,17 @@ RENDER.explorar=function(){
  }
  if(curTab("explorar","prog")==="pessoas")return _rex().replace(/<div class="tabs" role="tablist">[\s\S]*?<\/div>/,"");
  var q=F.xq||"";
- return secHead("formação","Cursos e formação","Explora licenciaturas, mestrados, cursos online e formações curtas.")+
+ return secHead(t("Formação"),t("Cursos e formação"),esc(t("Explora licenciaturas, mestrados, cursos online e formações curtas.")))+
  '<div class="row study-actions">'+jump("oportunidades","Bolsas e estágios")+
- '<button class="btn sec s" data-a="studycompare" type="button" aria-expanded="'+comparisonOpen+'">Comparar'+(CMP.length?' ('+CMP.length+')':'')+'</button>'+
+ '<button class="btn sec s" data-a="studycompare" type="button" aria-controls="study-comparison" aria-expanded="'+comparisonOpen+'">'+esc(t("Comparar"))+(CMP.length?' ('+CMP.length+')':'')+'</button>'+
  help("Escolhe os cursos ou instituições nos resultados para os veres lado a lado.")+
- '<button class="btn sec s" data-a="studyreviews" type="button" aria-expanded="'+reviewsOpen+'">Avaliações</button>'+
+ '<button class="btn sec s" data-a="studyreviews" type="button" aria-expanded="'+reviewsOpen+'">'+esc(t("Avaliações"))+'</button>'+
  help("Lê as opiniões dos estudantes ou escreve uma avaliação.")+'</div>'+
- (comparisonOpen?'<section class="panel stack-s" id="study-comparison" tabindex="-1"><h3>Comparar lado a lado</h3>'+compareHTML()+'</section>':"")+
- (reviewsOpen?'<section class="panel stack-s"><h3>Avaliações</h3>'+(lockedHTML("As avaliações")||
+ (comparisonOpen?'<section class="panel stack-s" id="study-comparison" tabindex="-1"><div class="row sb"><h3>'+esc(t("Comparar lado a lado"))+'</h3><button type="button" class="btn ghost s" data-a="studycompare" aria-label="'+esc(t("Ocultar comparação"))+'">×</button></div>'+compareHTML()+'</section>':"")+
+ (reviewsOpen?'<section class="panel stack-s"><h3>'+esc(t("Avaliações"))+'</h3>'+(lockedHTML("As avaliações")||
  disclose("Escrever avaliação",revForm())+REVS.filter(visible).slice().sort(function(a,b){return b.ts-a.ts}).slice(0,20).map(function(r){return revHTML(r,true)}).join(""))+'</section>':"")+
- '<input class="fld" type="search" id="compact-course-query" data-flt="xq" value="'+esc(q)+'" aria-label="Pesquisar cursos e instituições" placeholder="Pesquisar curso, instituição, área ou cidade">'+
- '<h3>Cursos</h3>'+progList(q)+'<details id="study-institutions" class="panel tight"><summary>Instituições</summary>'+instList(q)+'</details>'+studySelection();
+ '<input class="fld" type="search" id="compact-course-query" data-flt="xq" value="'+esc(q)+'" aria-label="'+esc(t("Pesquisar cursos e instituições"))+'" placeholder="'+esc(t("Pesquisar curso, instituição, área ou cidade"))+'">'+
+ '<h3>'+esc(t("Cursos"))+'</h3>'+progList(q)+'<details id="study-institutions" class="panel tight"><summary>'+esc(t("Instituições"))+'</summary>'+instList(q)+'</details>';
 };
 var activityMessages={};
 var renderActivity=RENDER.atividades;
@@ -6852,18 +6920,18 @@ openDetailSubs=function(){
 };
 RENDER.atividades=function(){
  var html=renderActivity();
- if(!DET)return afterHead(html,'<section class="panel stack-s"><p class="sm m">Workshops com data marcada, eventos, hobbies e clubes. Para comparar cursos e formações, abre Formação.</p><div class="row"><button type="button" class="btn sec s" data-a="workshops">Ver workshops</button>'+jump("comunidades","Grupos de estudantes")+'</div></section>');
+ if(!DET)return afterHead(html,'<section class="panel stack-s"><p class="sm m">'+esc(t("Workshops com data marcada, eventos, hobbies e clubes. Para comparar cursos e formações, abre Formação."))+'</p><div class="row"><button type="button" class="btn sec s" data-a="workshops">'+esc(t("Ver workshops"))+'</button>'+jump("comunidades","Grupos de estudantes")+'</div></section>');
  if(DET.k!=="ativ")return html;
  var id=DET.id, activity=window.AnfExplorar&&AnfExplorar.find(id);
  if(!activity)return html;
  var messages=(activityMessages[id]||[]).filter(visible).map(function(message){
    return '<p><strong>'+esc(nameOf(message.uid))+'</strong> · '+esc(message.txt)+'</p>';
  }).join("");
- return html+'<section class="panel stack-s"><h3>Conversa da atividade</h3>'+askAbout("ativ:"+id)+
+ return html+'<section class="panel stack-s"><h3>'+esc(t("Conversa da atividade"))+'</h3>'+askAbout("ativ:"+id)+
  (!DB?visitorPreview(demoCard("Conversa da atividade","É preciso trazer material?","1 resposta de exemplo")):activity.demo?'<p>Exemplo de pergunta: é preciso trazer material?</p>':
- (messages||'<p>Ainda sem mensagens.</p>')+
- (DB?'<form class="stack-s" data-f="activitymessage" data-id="'+esc(id)+'"><label for="activity-text">Mensagem</label><textarea class="fld" id="activity-text" required maxlength="1000"></textarea><div class="row"><button class="btn s" type="submit">Enviar</button><span id="activity-status" role="status"></span></div></form>':lockedHTML("A conversa")))+
- '</section>';
+ (messages||'<p>'+esc(t("Ainda sem mensagens."))+'</p>')+
+ (DB?'<form class="stack-s" data-f="activitymessage" data-id="'+esc(id)+'"><label for="activity-text">'+esc(t("Mensagem"))+'</label><textarea class="fld" id="activity-text" required maxlength="1000"></textarea><div class="row"><button class="btn s" type="submit">'+esc(t("Enviar"))+'</button><span id="activity-status" role="status"></span></div></form>':lockedHTML("A conversa")))+
+ '</section>'+catalogOpinions("ativ:"+id);
 };
 FORM.activitymessage=function(form){
  if(!canW())return;
@@ -7022,19 +7090,217 @@ form[data-f="dm"] button{flex:none;min-height:44px}
 @media(max-width:700px){.message-layout{display:grid;grid-template-columns:minmax(0,1fr)}#dmbox{height:38dvh!important;min-height:220px}.mainwrap{overflow-x:clip}html{scroll-behavior:auto!important}}
 :root[data-theme="dark"] option,:root[data-theme="dark"] select{color:#eef1ff!important;background:#141838!important}
 </style>
-<script id="stellamus-home-stability-2026">
-/* A página Início é sempre independente da última secção visitada. */
+<style id="stellamus-social">
+:root{--social-accent:#6553a6;--social-soft:#efebfa;--social-ink:#22203a;--social-line:#ddd8eb}
+html:not(.anf-light){--social-accent:#c0adff;--social-soft:#27213d;--social-ink:#efecff;--social-line:#37304a}
+body{font-size:.92rem}
+#main h1,#main h2{font-size:clamp(1.35rem,2.3vw,1.9rem);line-height:1.2}
+#main h3{font-size:1.05rem;line-height:1.35}
+.app #main .btn,.app #main .ax-btn,.app #main .chip{border-radius:8px;border:0;box-shadow:none;font-size:.85rem}
+.app #main .btn.sec,.app #main .ax-btn:not(.pri),.app #main .chip{background:var(--social-soft);color:var(--social-ink)}
+.app #main .btn.ghost{background:transparent;color:var(--social-accent)}
+.app #main .btn:not(.sec,.ghost){background:var(--social-accent);color:var(--surface)}
+.app #main .btn:focus-visible,.app #main .lnk:focus-visible{outline:2px solid var(--social-accent);outline-offset:2px}
+#rail .anav .aone,#anftabs button{border-color:transparent!important;box-shadow:none}
+#rail .anav .aone:not(.cur),#anftabs button:not(.cur){background:transparent!important}
+#top .orbit-trigger{border:0;box-shadow:none;background:transparent;padding:0;flex:0 0 54px;width:54px;height:42px}
+#top #langPick2{display:block;order:3;width:5.8rem;min-width:0;font-size:.78rem;padding:.35rem;flex:0 0 5.8rem}
+.orbit-mini{position:relative;display:block;width:54px;height:42px}
+.orbit-mini svg:not(.av svg){position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:var(--social-accent)}
+.orbit-mini-me,.orbit-mini-friend{position:absolute;display:grid;place-items:center}
+.orbit-mini-me{left:16px;top:10px}.orbit-mini-friend.pos0{left:2px;top:2px}.orbit-mini-friend.pos1{right:2px;bottom:2px}
+.orbit-mini-friend.pos2{right:2px;top:2px}.orbit-mini-friend.pos3{left:2px;bottom:2px}
+.constellation-menu .cstv{margin-inline:auto}.orbit-center-action{position:absolute;inset:0;border:0;background:none;border-radius:50%;cursor:pointer}.orbit-center-action:focus-visible{outline:2px solid white;outline-offset:2px}.constellation-menu .cst-p,.constellation-menu .cst-e,.constellation-menu .sky{animation:none}
+.social-home{width:100%;max-width:980px;margin-inline:auto;grid-template-columns:minmax(0,1fr) minmax(185px,244px);gap:clamp(16px,3vw,36px)}
+.social-home-head h2,.social-home-head p,.social-composer h3,.social-composer p{margin:0}
+.social-home-head p{margin-top:6px}
+.social-composer{padding:14px 16px;gap:8px;border:1px solid var(--social-line);border-radius:12px;box-shadow:none;background:var(--surface)}
+.social-feed{min-width:0}
+.social-feed>div:first-child{padding-bottom:6px}
+.social-post{display:grid;grid-template-columns:32px minmax(0,1fr);gap:10px;border-top:1px solid var(--social-line);padding:13px 0}
+.social-post-copy>*{margin:0 0 3px}
+#main .social-action,#main .home-links .lnk{color:var(--social-accent);font-size:.82rem;text-decoration:none;font-weight:650}
+.home-side>details{padding:12px;border-radius:10px;border-color:var(--social-line);box-shadow:none}
+.home-side summary{cursor:pointer;font-weight:600}.home-tour-steps{padding-inline-start:1.15rem}.home-tour-steps li+li{margin-top:.4rem}
+.home-side .panel .panel{padding:10px 0 0;background:transparent;border:0;box-shadow:none}
+.home-side form[data-f=login] .row{flex-wrap:wrap!important}
+.home-links{display:grid;gap:2px;padding:8px 0}
+.home-links .lnk{text-align:left;font-size:.86rem;justify-self:start}
+.message-layout>div>.panel{border:0;background:none;box-shadow:none;padding:0}
+#dmbox{display:block;background:transparent;border:0;border-radius:0;padding:.35rem .75rem;scrollbar-gutter:stable}
+.dm-line{display:flex;align-items:baseline;gap:.6rem;margin:.5rem 0}
+.dm-line.own{justify-content:flex-end}
+.dm-line p{max-width:80%;margin:0;min-width:0;overflow-wrap:anywhere}
+.dm-line time{flex:none}
+.cmp-opinion{margin:0 0 .6rem;overflow-wrap:anywhere}
+.study-selection{background:var(--surface);border:1px solid var(--social-line);border-radius:12px}
+.study-selection>.row{flex-wrap:wrap}
+.study-reopen{position:fixed;right:16px;bottom:12px;z-index:5}
+#main:has(.study-selection) .route-return{align-self:start}
+@media(max-width:820px){.study-reopen,.study-selection{bottom:68px}}
+@media(max-width:700px){
+ .social-home{grid-template-columns:minmax(0,1fr)}
+ .home-side{grid-row:1;display:flex;justify-content:flex-end;flex-wrap:wrap}
+ .home-side>.home-links{width:100%;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;padding:0}
+ #top #langPick2{width:5rem;flex-basis:5rem}
+ #top .row1{flex-wrap:wrap}
+ #top .row1>.global-search{order:4;flex:1 0 100%;max-width:none}
+}
+@media(min-width:821px){#top .row1>.logo{display:none}}
+</style>
+<script>
 (function(){
- if(typeof RENDER==='undefined')return;
- RENDER.inicio=function(){
-  var title='<header class="fh-head"><p class="crumb">Stellamus / Início</p><h2>'+esc(t('Conversas e debates'))+'</h2><p class="sm m">'+esc(t('Partilha uma pergunta, inicia uma conversa ou participa num debate.'))+'</p></header>';
-  var buttons='<section class="panel stack-s"><h3>'+esc(t('O que achas de…?'))+'</h3><p class="sm m">'+esc(t('Começa uma conversa com a comunidade.'))+'</p><div class="row"><button class="btn" type="button" data-a="homequestion" data-starter="">'+esc(t('Começar debate'))+'</button><button class="btn sec" type="button" data-go="mural">'+esc(t('Publicar conversa'))+'</button></div></section>';
-  var form=(OPEN.homequestion&&typeof questionComposer==='function')?questionComposer(true):'';
-  var debates='';
-  try{debates=DEBS.filter(visible).slice().sort(function(a,b){return (b.last||b.ts)-(a.last||a.ts)}).slice(0,12).map(function(d){return '<article class="panel stack-s"><p class="xs m">'+esc(nameOf(d.uid))+'</p><h3>'+esc(d.tit)+'</h3>'+(d.desc?'<p class="sm">'+esc(String(d.desc).slice(0,220))+'</p>':'')+'<div><button class="btn sec s" data-a="deb" data-id="'+esc(d.id)+'">'+esc(t('Responder'))+'</button></div></article>'}).join('')}catch(e){console.warn('Home feed',e)}
-  return title+buttons+form+'<section class="stack" aria-label="Debates recentes"><h3>'+esc(t('Debates recentes'))+'</h3>'+(debates||'<div class="panel"><p class="m">'+esc(t('Ainda não há debates. Sê a primeira pessoa a publicar.'))+'</p></div>')+'</section>';
+var translations={
+ "Conversas e debates":["Conversations and debates", "Conversaciones y debates", "Gespräche und Debatten", "Conversations et débats", "Conversazioni e dibattiti"],
+ "Partilha uma pergunta, inicia uma conversa ou participa num debate.":["Share a question, start a conversation or join a debate.", "Comparte una pregunta, inicia una conversación o participa en un debate.", "Stelle eine Frage, starte ein Gespräch oder nimm an einer Debatte teil.", "Pose une question, lance une conversation ou participe à un débat.", "Fai una domanda, inizia una conversazione o partecipa a un dibattito."],
+ "O que achas de…?":["What do you think about…?", "¿Qué opinas de…?", "Was hältst du von …?", "Que penses-tu de… ?", "Che ne pensi di…?"],
+ "Começa uma conversa com a comunidade.":["Start a conversation with the community.", "Inicia una conversación con la comunidad.", "Beginne ein Gespräch mit der Community.", "Lance une conversation avec la communauté.", "Inizia una conversazione con la community."],
+ "Começar debate":["Start a debate", "Iniciar debate", "Debatte starten", "Lancer un débat", "Avvia dibattito"],
+ "Publicar conversa":["Post a conversation", "Publicar conversación", "Gespräch veröffentlichen", "Publier une conversation", "Pubblica conversazione"],
+ "Debates recentes":["Recent debates", "Debates recientes", "Aktuelle Debatten", "Débats récents", "Dibattiti recenti"],
+ "Conversas recentes":["Recent conversations", "Conversaciones recientes", "Aktuelle Gespräche", "Conversations récentes", "Conversazioni recenti"],
+ "Cursos e formação":["Courses and training", "Cursos y formación", "Studium und Weiterbildung", "Études et formations", "Corsi e formazione"],
+ "Formação":["Training", "Formación", "Weiterbildung", "Formation", "Formazione"],
+ "Pesquisar e comparar":["Search and compare", "Buscar y comparar", "Suchen und vergleichen", "Rechercher et comparer", "Cerca e confronta"],
+ "Pesquisar no Stellamus":["Search Stellamus", "Buscar en Stellamus", "Stellamus durchsuchen", "Rechercher sur Stellamus", "Cerca su Stellamus"],
+ "Oportunidades e atividades":["Opportunities and activities", "Oportunidades y actividades", "Chancen und Aktivitäten", "Opportunités et activités", "Opportunità e attività"],
+ "Ocultar comparação":["Hide comparison", "Ocultar comparación", "Vergleich ausblenden", "Masquer la comparaison", "Nascondi il confronto"],
+ "Comparar lado a lado":["Compare side by side", "Comparar lado a lado", "Nebeneinander vergleichen", "Comparer côte à côte", "Confronta fianco a fianco"],
+ "Como funciona":["How it works", "Cómo funciona", "So funktioniert es", "Comment ça marche", "Come funziona"],
+ "Seleciona mais uma opção.":["Select one more option.", "Selecciona otra opción.", "Wähle eine weitere Option.", "Sélectionne une autre option.", "Seleziona un'altra opzione."],
+ "Sem resultados.":["No results.", "Sin resultados.", "Keine Ergebnisse.", "Aucun résultat.", "Nessun risultato."],
+ "Página oficial a confirmar":["Official page to be confirmed", "Página oficial por confirmar", "Offizielle Seite noch zu bestätigen", "Page officielle à confirmer", "Pagina ufficiale da confermare"],
+ "Opiniões":["Reviews", "Opiniones", "Erfahrungsberichte", "Avis", "Recensioni"],
+ "Ainda sem avaliações.":["No reviews yet.", "Aún no hay opiniones.", "Noch keine Bewertungen.", "Aucun avis pour le moment.", "Nessuna recensione per ora."],
+ "Avaliação geral (obrigatória)":["Overall rating (required)", "Valoración general (obligatoria)", "Gesamtbewertung (Pflichtfeld)", "Note générale (obligatoire)", "Valutazione generale (obbligatoria)"],
+ "Instituição / faculdade":["Institution / faculty", "Institución / facultad", "Hochschule / Fakultät", "Établissement / faculté", "Istituto / facoltà"],
+ "Processo de candidatura":["Application process", "Proceso de solicitud", "Bewerbungsverfahren", "Procédure de candidature", "Procedura di candidatura"],
+ "Taxa de candidatura":["Application fee", "Tasa de solicitud", "Bewerbungsgebühr", "Frais de candidature", "Tassa di candidatura"],
+ "Matrícula, inscrição e seguro":["Enrolment, registration and insurance", "Matrícula, inscripción y seguro", "Immatrikulation, Anmeldung und Versicherung", "Inscription et assurance", "Immatricolazione, iscrizione e assicurazione"],
+ "Quando se paga a matrícula e a primeira propina":["When enrolment and the first tuition payment are due", "Cuándo se pagan la matrícula y la primera cuota", "Fälligkeit der Einschreibung und der ersten Studiengebühr", "Quand payer l’inscription et les premiers frais de scolarité", "Quando pagare l'iscrizione e la prima rata"],
+ "Desconto por inscrição antecipada":["Early registration discount", "Descuento por inscripción anticipada", "Frühbucherrabatt", "Réduction pour inscription anticipée", "Sconto per iscrizione anticipata"],
+ "Candidaturas e propinas":["Applications and tuition fees", "Solicitudes y tasas académicas", "Bewerbung und Studiengebühren", "Candidatures et frais de scolarité", "Candidature e tasse universitarie"],
+ "Página da instituição para este curso":["Institution’s course page", "Página del curso en la institución", "Studiengangsseite der Hochschule", "Page de la formation sur le site de l’établissement", "Pagina del corso sul sito dell'istituto"],
+ "Explora licenciaturas, mestrados, cursos online e formações curtas.":["Explore degrees, master's programmes, online courses and short courses.", "Explora grados, másteres, cursos en línea y formaciones breves.", "Entdecke Bachelor- und Masterstudiengänge, Onlinekurse und Kurzkurse.", "Explore les licences, masters, cours en ligne et formations courtes.", "Esplora lauree, master, corsi online e corsi brevi."],
+ "Escolhe os cursos ou instituições nos resultados para os veres lado a lado.":["Select courses or institutions to compare them side by side.", "Selecciona cursos o instituciones para compararlos.", "Wähle Studiengänge oder Hochschulen zum direkten Vergleich.", "Sélectionne des formations ou établissements pour les comparer.", "Seleziona corsi o istituti per confrontarli."],
+ "Lê as opiniões dos estudantes ou escreve uma avaliação.":["Read student reviews or write your own.", "Lee las opiniones de estudiantes o escribe una valoración.", "Lies Erfahrungsberichte oder schreibe eine Bewertung.", "Lis les avis des étudiants ou rédige le tien.", "Leggi le recensioni degli studenti o scrivi la tua."],
+ "Pesquisar cursos e instituições":["Search courses and institutions", "Buscar cursos e instituciones", "Studiengänge und Hochschulen suchen", "Rechercher des formations et établissements", "Cerca corsi e istituti"],
+ "Pesquisar curso, instituição, área ou cidade":["Search by course, institution, subject or city", "Busca por curso, institución, área o ciudad", "Suche nach Studiengang, Hochschule, Fach oder Stadt", "Recherche par formation, établissement, domaine ou ville", "Cerca per corso, istituto, area o città"],
+ "Conversa da atividade":["Activity discussion", "Conversación de la actividad", "Gespräch zur Aktivität", "Discussion de l’activité", "Conversazione sull’attività"],
+ "Ainda sem mensagens.":["No messages yet.", "Aún no hay mensajes.", "Noch keine Nachrichten.", "Aucun message pour le moment.", "Nessun messaggio per ora."],
+ "Ainda não tens mensagens.":["You have no messages yet.", "Aún no tienes mensajes.", "Du hast noch keine Nachrichten.", "Tu n’as pas encore de messages.", "Non hai ancora messaggi."],
+ "Encontrar pessoas":["Find people", "Encontrar personas", "Leute finden", "Trouver des personnes", "Trova persone"],
+ "Ver workshops":["See workshops", "Ver talleres", "Workshops ansehen", "Voir les ateliers", "Vedi i laboratori"],
+ "Grupos de estudantes":["Student groups", "Grupos de estudiantes", "Studierendengruppen", "Groupes étudiants", "Gruppi studenteschi"],
+ "Formação curta":["Short course", "Formación breve", "Kurzkurs", "Formation courte", "Corso breve"],
+ "Curso online":["Online course", "Curso en línea", "Onlinekurs", "Cours en ligne", "Corso online"],
+ "Pesquisar atividades, oportunidades ou cursos":["Search activities, opportunities or courses", "Buscar actividades, oportunidades o cursos", "Aktivitäten, Angebote oder Kurse suchen", "Rechercher des activités, opportunités ou formations", "Cerca attività, opportunità o corsi"],
+ "A confirmar a sessão…":["Checking your session…", "Comprobando la sesión…", "Sitzung wird geprüft …", "Vérification de la session…", "Verifica della sessione…"],
+ "Para receber e abrir um link de entrada, usa o endereço online do Stellamus. Nesta cópia podes explorar a apresentação.":["Use the live Stellamus site to receive a sign-in link. You can explore this copy.", "Usa el sitio web de Stellamus para recibir un enlace de acceso. Puedes explorar esta copia.", "Öffne die Stellamus-Website, um einen Anmeldelink zu erhalten. Diese Kopie kannst du erkunden.", "Utilise le site Stellamus pour recevoir un lien de connexion. Tu peux explorer cette copie.", "Usa il sito Stellamus per ricevere il link di accesso. Puoi esplorare questa copia."],
+ "A IA deve ser permitida nos trabalhos académicos?":["Should AI be allowed in academic assignments?", "¿Debería permitirse la IA en los trabajos académicos?", "Sollte KI in Studienarbeiten erlaubt sein?", "L’IA devrait-elle être autorisée dans les travaux universitaires ?", "L’IA dovrebbe essere permessa nei lavori accademici?"],
+ "Com regras claras, proibida ou ensinada como ferramenta?":["Allowed with rules, banned, or taught as a tool?", "¿Con reglas claras, prohibida o enseñada como herramienta?", "Mit klaren Regeln erlauben, verbieten oder als Werkzeug vermitteln?", "Avec des règles claires, interdite ou enseignée comme outil ?", "Con regole chiare, vietata o insegnata come strumento?"],
+ "As propinas do ensino superior público deviam acabar?":["Should public universities stop charging tuition?", "¿Deberían eliminarse las tasas de la educación superior pública?", "Sollten Studiengebühren an öffentlichen Hochschulen abgeschafft werden?", "Faut-il supprimer les frais d’inscription dans le supérieur public ?", "Si dovrebbero abolire le tasse universitarie negli atenei pubblici?"],
+ "Quem paga, e o que muda na qualidade?":["Who pays, and what happens to quality?", "¿Quién paga y cómo cambia la calidad?", "Wer zahlt, und was ändert sich an der Qualität?", "Qui paie et quel effet sur la qualité ?", "Chi paga e che cosa cambia per la qualità?"],
+ "As praxes deviam continuar?":["Should student initiation traditions continue?", "¿Deberían continuar los rituales de iniciación universitaria?", "Sollten studentische Aufnahmerituale fortgeführt werden?", "Faut-il maintenir les rites d’intégration étudiante ?", "Dovrebbero continuare i riti di iniziazione studentesca?"],
+ "Integração ou pressão? Partilha a tua experiência.":["Belonging or pressure? Share your experience.", "¿Integración o presión? Comparte tu experiencia.", "Integration oder Druck? Teile deine Erfahrungen.", "Intégration ou pression ? Partage ton expérience.", "Integrazione o pressione? Racconta la tua esperienza."],
+ "Estágios não pagos deviam ser proibidos?":["Should unpaid internships be banned?", "¿Deberían prohibirse las prácticas no remuneradas?", "Sollten unbezahlte Praktika verboten werden?", "Faut-il interdire les stages non rémunérés ?", "Si dovrebbero vietare i tirocini non retribuiti?"],
+ "Experiência ou trabalho de graça?":["Experience or free labour?", "¿Experiencia o trabajo gratis?", "Berufserfahrung oder Gratisarbeit?", "Expérience ou travail gratuit ?", "Esperienza o lavoro gratis?"],
+ "Ficar em Portugal ou ir para fora depois do curso?":["Stay in Portugal or move abroad after graduation?", "¿Quedarse en Portugal o irse al extranjero después de graduarse?", "Nach dem Abschluss in Portugal bleiben oder ins Ausland gehen?", "Rester au Portugal ou partir à l’étranger après ses études ?", "Restare in Portogallo o andare all’estero dopo gli studi?"],
+ "Salários, carreira, família e qualidade de vida.":["Pay, career, family and quality of life.", "Salarios, carrera, familia y calidad de vida.", "Gehalt, Karriere, Familie und Lebensqualität.", "Salaire, carrière, famille et qualité de vie.", "Stipendio, carriera, famiglia e qualità della vita."],
+ "Avaliação contínua ou exame final?":["Continuous assessment or a final exam?", "¿Evaluación continua o examen final?", "Laufende Bewertung oder Abschlussprüfung?", "Contrôle continu ou examen final ?", "Valutazione continua o esame finale?"],
+ "Qual mede melhor o que aprendeste?":["Which better measures what you learned?", "¿Cuál mide mejor lo que aprendiste?", "Was misst besser, was du gelernt hast?", "Lequel mesure le mieux tes acquis ?", "Quale misura meglio ciò che hai imparato?"],
+ "Pesquisar instituição ou faculdade":["Search for an institution or faculty", "Buscar institución o facultad", "Hochschule oder Fakultät suchen", "Rechercher un établissement ou une faculté", "Cerca un istituto o una facoltà"],
+ "Distrito ou região":["District or region", "Distrito o región", "Bezirk oder Region", "District ou région", "Distretto o regione"],
+ "Tipo de formação":["Course type", "Tipo de formación", "Art der Ausbildung", "Type de formation", "Tipo di formazione"],
+ "Workshops com data marcada, eventos, hobbies e clubes. Para comparar cursos e formações, abre Formação.":["Find scheduled workshops, events, hobbies and clubs. Open Training to compare courses.", "Encuentra talleres programados, eventos, aficiones y clubes. Abre Formación para comparar cursos.", "Finde Workshops, Veranstaltungen, Hobbys und Clubs. Öffne Weiterbildung, um Kurse zu vergleichen.", "Trouve des ateliers, événements, loisirs et clubs. Ouvre Formation pour comparer les cours.", "Trova laboratori, eventi, hobby e club. Apri Formazione per confrontare i corsi."],
+ "Cria o teu perfil e adiciona o teu curso, competências e interesses.":["Create your profile and add your course, skills and interests.", "Crea tu perfil y añade tu curso, habilidades e intereses.", "Erstelle dein Profil und ergänze Studiengang, Fähigkeiten und Interessen.", "Crée ton profil et ajoute ta formation, tes compétences et tes centres d’intérêt.", "Crea il tuo profilo e aggiungi corso, competenze e interessi."],
+ "Explora pessoas e atividades, compara cursos ou encontra alguém para uma troca.":["Discover people and activities, compare courses or find someone to swap skills with.", "Descubre personas y actividades, compara cursos o busca a alguien para un intercambio.", "Entdecke Leute und Aktivitäten, vergleiche Kurse oder finde jemanden für einen Austausch.", "Découvre des personnes et des activités, compare des formations ou trouve quelqu’un avec qui échanger.", "Scopri persone e attività, confronta corsi o trova qualcuno con cui scambiare competenze."],
+ "Dá o primeiro passo: envia uma mensagem, participa num grupo ou propõe uma troca.":["Send a message, join a group or suggest a skill swap.", "Envía un mensaje, únete a un grupo o propón un intercambio.", "Sende eine Nachricht, tritt einer Gruppe bei oder schlage einen Austausch vor.", "Envoie un message, rejoins un groupe ou propose un échange.", "Invia un messaggio, entra in un gruppo o proponi uno scambio."],
+ "Descarregar a app":["Get the app", "Descargar la app", "App herunterladen", "Télécharger l’application", "Scarica l’app"],
+ "Sem resultados na comunidade.":["No community results.", "Sin resultados en la comunidad.", "Keine Ergebnisse in der Community.", "Aucun résultat dans la communauté.", "Nessun risultato nella community."],
+ "Candidaturas e custos por curso":["Applications and costs by course", "Solicitudes y costes por curso", "Bewerbungen und Kosten je Studiengang", "Candidatures et coûts par formation", "Candidature e costi per corso"],
+ "Usa os botões Comparar nas fichas ou pesquisa aqui por tema.":["Use the Compare buttons on listings or search by topic here.", "Usa los botones Comparar de las fichas o busca aquí por tema.", "Nutze die Vergleichsschaltflächen auf den Detailseiten oder suche hier nach einem Thema.", "Utilise les boutons Comparer sur les fiches ou recherche ici par thème.", "Usa i pulsanti Confronta nelle schede o cerca qui per argomento."]
+};
+["en","es","de","fr","it"].forEach(function(lang,i){
+ Object.keys(translations).forEach(function(key){I18N[lang][key]=translations[key][i]});
+});
+})();
+</script>
+<script id="stellamus-social-render">
+ACT.opodetail=function(d){go("oportunidades",{k:"opo",id:d.id})};
+ACT.clubdetail=function(d){go("atividades",{k:"clube",id:d.id})};
+ACT.closecomparison=function(){
+ comparisonMinimized=true;
+ if(routeTrail.length)ACT.back();else go("explorar",null,"prog");
+};
+
+(function(){
+ function homeStarterDebates(){
+   return SEEDDEBS.map(function(d,i){return {id:String(i),tit:d[0],desc:d[1],uid:SYS,example:true}});
+ }
+ ACT.homeconversation=function(){
+   if(!DB){ACT.visitorlogin();return}
+   if(!canW(null,true))return;
+   OPEN.homeconversation=!OPEN.homeconversation;
+   OPEN.homequestion=false;
+   render();
+   requestAnimationFrame(function(){var input=$("pc-txt");if(input)input.focus()});
  };
- window.addEventListener('hashchange',function(){if(location.hash==='#inicio'&&typeof go==='function'&&V!=='inicio')go('inicio')});
+ var openQuestion=ACT.homequestion;
+ ACT.homequestion=function(d){OPEN.homeconversation=false;openQuestion(d)};
+ ACT.starterdiscussion=function(d){
+   var item=homeStarterDebates()[Number(d.id)];
+   if(!item)return;
+   if(DB){ACT.homequestion({starter:t(item.tit)});return}
+   go("agora",{k:"starterdiscussion",id:d.id});
+ };
+ var agora=RENDER.agora;
+ RENDER.agora=function(){
+   if(!DET||DET.k!=="starterdiscussion")return agora();
+   var item=homeStarterDebates()[Number(DET.id)];
+   if(!item)return agora();
+   return backBtn()+secHead(t("Debates"),t(item.tit),esc(t(item.desc)))+
+     '<button class="btn s" type="button" data-a="visitorlogin">'+esc(t("Entrar ou criar conta"))+'</button>';
+ };
+ function homeDebate(d){
+   var title=d.sys||d.example?t(d.tit):d.tit, description=d.sys||d.example?t(d.desc||""):d.desc;
+   return '<article class="social-post">'+ident(d.uid||SYS,32)+'<div class="social-post-copy"><span class="xs m">'+
+     esc(nameOf(d.uid))+'</span><h3>'+esc(title)+'</h3>'+(description?'<p class="sm m">'+esc(String(description).slice(0,220))+'</p>':"")+
+     '<button class="lnk social-action" type="button" data-a="'+(d.example?"starterdiscussion":"deb")+'" data-id="'+esc(d.id)+'">'+
+     esc(t(DB&&d.example?"Começar debate":"Responder"))+'</button></div></article>';
+ }
+ RENDER.inicio=function(){
+   var discussions=DEBS.filter(function(d){return visible(d)&&!hiddenByRep(d)}).slice().sort(function(a,b){return (b.last||b.ts)-(a.last||a.ts)});
+   var known=new Set(discussions.map(function(d){return norm(d.tit)}));
+   var feed=discussions.slice(0,12).concat(homeStarterDebates().filter(function(d){return !known.has(norm(d.tit))}));
+   var composer=OPEN.homequestion?questionComposer(true):OPEN.homeconversation&&DB?composeHTML():"";
+   return '<div class="social-home"><div class="stack"><header class="social-home-head"><h2>'+esc(t("Conversas e debates"))+'</h2><p class="sm m">'+
+     esc(t("Partilha uma pergunta, inicia uma conversa ou participa num debate."))+'</p></header>'+
+     '<section class="panel social-composer"><h3>'+esc(t("O que achas de…?"))+'</h3><p class="sm m">'+esc(t("Começa uma conversa com a comunidade."))+'</p>'+
+     '<div class="row"><button class="btn s" type="button" data-a="homequestion">'+esc(t("Começar debate"))+'</button>'+
+     '<button class="btn sec s" type="button" data-a="homeconversation" aria-expanded="'+!!OPEN.homeconversation+'">'+esc(t("Publicar conversa"))+'</button></div></section>'+
+     composer+'<section class="social-feed" aria-label="'+esc(t("Debates recentes"))+'"><div class="row sb"><h3>'+esc(t("Debates recentes"))+'</h3><button class="lnk social-action" type="button" data-go="agora">'+esc(t("Ver tudo"))+'</button></div>'+
+     feed.map(homeDebate).join("")+'</section>'+homeConversations()+'</div>'+
+     '<aside class="stack-s home-side"><details id="home-tour" class="panel tight"><summary>'+esc(t("Tutorial"))+'</summary>'+
+     tourQuickLinks()+'</details>'+(!DB?'<details id="home-login" class="panel tight"><summary>'+esc(t("Entrar ou criar conta"))+'</summary>'+loginHTML()+'</details>':"")+
+     '<div class="home-links"><button class="lnk" type="button" data-go="oportunidades">'+esc(t("Bolsas e estágios"))+'</button>'+
+     '<button class="lnk" type="button" data-go="atividades">'+esc(t("Atividades"))+'</button>'+
+     '<button class="lnk" type="button" data-go="explorar">'+esc(t("Cursos e formação"))+'</button>'+(PWA.standalone?'':'<button class="lnk" type="button" data-pwa="install">'+esc(t("Descarregar a app"))+'</button>')+'</div></aside></div>';
+ };
+ function homeConversations(){
+   var posts=POSTS.filter(function(p){return visible(p)&&!hiddenByRep(p)}).slice().sort(function(a,b){return b.ts-a.ts}).slice(0,5);
+   if(!DB||!posts.length)return "";
+   return '<section class="social-feed"><div class="row sb"><h3>'+esc(t("Conversas recentes"))+'</h3><button class="lnk social-action" type="button" data-go="mural">'+esc(t("Ver tudo"))+'</button></div><ul class="feed">'+posts.map(postHTML).join("")+'</ul></section>';
+ }
+ function tourQuickLinks(){
+   return '<ol class="home-tour-steps sm m">'+[
+     "Cria o teu perfil e adiciona o teu curso, competências e interesses.",
+     "Explora pessoas e atividades, compara cursos ou encontra alguém para uma troca.",
+     "Dá o primeiro passo: envia uma mensagem, participa num grupo ou propõe uma troca."
+   ].map(function(step){return '<li>'+esc(t(step))+'</li>'}).join("")+'</ol><div class="home-links">'+[["espaco","O meu perfil"],["skills","Trocas de skills"],["explorar","Cursos e formação"],["oportunidades","Oportunidades"],["atividades","Atividades"],["mensagens","Mensagens"]].map(function(item){
+     return '<button type="button" class="lnk" data-go="'+item[0]+'">'+esc(t(item[1]))+'</button>';
+   }).join("")+'</div>';
+ }
 })();
 </script>
 </body>
