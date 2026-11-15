@@ -7993,5 +7993,19 @@ var c=document.createElement("style");c.textContent=[
 ].join("\n");document.head.appendChild(c);
 })();
 </script>
+<script>
+/* Stellamus — aviso no campo do email: o link pode cair no spam (15 nov 2026) */
+(function(){if(typeof loginHTML!=="function")return;
+try{var EN=(window.I18N=window.I18N||{}).en=window.I18N.en||{};
+ EN["Confirma o email: o link pode cair no spam"]="Check your email: the link may land in spam";
+ EN["Se não o vires em 1–2 minutos, procura em Spam, Promoções, Social ou Lixo. Marca como «Não é spam» para receberes os próximos."]="If you don't see it within 1–2 minutes, check Spam, Promotions, Social or Junk. Mark it as “Not spam” so future ones arrive."}catch(e){}
+var _l=loginHTML;
+loginHTML=function(){var h=_l();if(h.indexOf('id="lg-email"')<0)return h;
+ var w='<div class="mailwarn" role="note"><b>⚠ '+esc(t("Confirma o email: o link pode cair no spam"))+'</b><span>'+esc(t("Se não o vires em 1–2 minutos, procura em Spam, Promoções, Social ou Lixo. Marca como «Não é spam» para receberes os próximos."))+'</span></div>';
+ return h.replace('<span class="msg" id="lg-msg">',w+'<span class="msg" id="lg-msg">')};
+var c=document.createElement("style");c.textContent='.mailwarn{display:grid;gap:2px;margin-top:10px;padding:10px 12px;border-radius:12px;border:1px solid #F5B94A;background:rgba(245,185,74,.14);font-size:.84rem;line-height:1.4}.mailwarn b{color:#F5B94A}.mailwarn span{color:var(--ink)}html.anf-light .mailwarn b{color:#8A5A00}';
+document.head.appendChild(c);
+})();
+</script>
 </body>
 </html>
