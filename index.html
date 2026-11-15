@@ -28,7 +28,7 @@ main,.mainwrap,.app{min-width:0}
 <script>/* não deixar outros sites meterem o Stellamus dentro de uma moldura (clickjacking) */if(window.top!==window.self){try{window.top.location=window.self.location.href}catch(e){document.documentElement.style.display="none"}}</script>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0E1326">
-<script>(function(){try{var v=localStorage.getItem("anf.theme");if(v!=="light"&&v!=="dark")v="light";if(v==="light")document.documentElement.classList.add("anf-light")}catch(e){}})();</script>
+<script>(function(){try{var v=localStorage.getItem("anf.theme");if(v!=="light"&&v!=="dark")v="dark";if(v==="light")document.documentElement.classList.add("anf-light")}catch(e){}})();</script>
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -6270,7 +6270,7 @@ function cutHead(h){/* tira o cabeçalho antigo (primeiro bloco .banner/.sec-hea
 /* Anfitriu — modo claro e modo escuro (29 out 2026) */
 (function(){
 var KEY="anf.theme";
-function pref(){var v=null;try{v=localStorage.getItem(KEY)}catch(e){}if(v==="light"||v==="dark")return v;return"light"}
+function pref(){var v=null;try{v=localStorage.getItem(KEY)}catch(e){}if(v==="light"||v==="dark")return v;return"dark"}
 function apply(m){var r=document.documentElement;r.classList.toggle("anf-light",m==="light");r.style.colorScheme=m;
   var mt=document.querySelector('meta[name="theme-color"]');if(mt)mt.setAttribute("content",m==="light"?"#F4F1FA":"#0E1326");
   var b=document.getElementById("anf-theme");if(b){b.setAttribute("aria-pressed",String(m==="light"));b.setAttribute("aria-label",t(m==="light"?"Mudar para modo escuro":"Mudar para modo claro"));b.title=b.getAttribute("aria-label");b.innerHTML=ICON[m==="light"?"moon":"sun"]}
@@ -7932,6 +7932,65 @@ window.fbCell=function(k,key){key=KEYOF[key]||key;var c=ctxOf(k||window.__fbctx)
 if(typeof instDetail==="function"){var _i=instDetail;instDetail=function(id){window.__fbctx="inst:"+id;try{return _i(id)}finally{window.__fbctx=null}}}
 if(typeof progDetail==="function"){var _p=progDetail;progDetail=function(id){window.__fbctx="prog:"+id;try{return _p(id)}finally{window.__fbctx=null}}}
 var c=document.createElement("style");c.textContent='.fbx{display:inline;font-size:.86rem;line-height:1.45}.fbx a{color:var(--accent,#FF6B5A)}.fbt{display:inline-block;margin-right:4px;padding:1px 7px;border-radius:999px;background:#FFC857;color:#2B1B2F;font:800 .66rem var(--f-body);vertical-align:1px}';document.head.appendChild(c);
+})();
+</script>
+<script>
+/* Stellamus — início renovado: atalhos formatados, boas-vindas com tutorial em 30 segundos e encontros Liga-te (15 nov 2026) */
+(function(){
+if(typeof RENDER==="undefined"||typeof RENDER.inicio!=="function")return;
+var LI={pt:0,en:1};
+try{var EN=(window.I18N=window.I18N||{}).en=window.I18N.en||{};
+ var T={"Bem-vindo/a ao Stellamus":"Welcome to Stellamus","Começa em 30 segundos":"Get started in 30 seconds",
+ "Explora sem conta: cursos, bolsas e debates. Cria conta grátis para trocar skills e falar com pessoas.":"Explore without an account: courses, scholarships and debates. Create a free account to swap skills and talk to people.",
+ "Cria o teu perfil":"Create your profile","Diz o teu curso e o que sabes ou queres aprender.":"Tell us your course and what you know or want to learn.",
+ "Descobre":"Discover","Compara cursos, encontra pessoas, grupos e oportunidades.":"Compare courses, find people, groups and opportunities.",
+ "Liga-te":"Connect","Envia uma mensagem, junta-te a um grupo ou propõe uma troca.":"Send a message, join a group or propose a swap.",
+ "Criar conta grátis":"Create a free account","Ver os cursos":"See the courses","Atalhos":"Shortcuts",
+ "Encontros Liga-te":"Liga-te meetups","Vem conhecer-nos ao vivo. Entrada livre.":"Come and meet us in person. Free entry.",
+ "Noite de Decisões":"Decision Night","Café Aberto":"Open Café","Roda de Conversa":"Conversation Circle",
+ "com o LifeLab":"with LifeLab","com o Larbond":"with Larbond","Quinta-feira, 19 nov. · 18h00":"Thursday, 19 Nov · 6:00 pm",
+ "Terça-feira, 24 nov. · 9h00":"Tuesday, 24 Nov · 9:00 am","Quarta-feira, 2 dez. · 17h30":"Wednesday, 2 Dec · 5:30 pm",
+ "Adicionar ao calendário":"Add to calendar","Cantina da FCH Católica":"FCH Católica canteen"};
+ for(var k in T)if(!EN[k])EN[k]=T[k]}catch(e){}
+var EV=[["Noite de Decisões","com o LifeLab","Quinta-feira, 19 nov. · 18h00","Campus","20261119T180000"],
+ ["Café Aberto","","Terça-feira, 24 nov. · 9h00","Cantina da FCH Católica","20261124T090000"],
+ ["Roda de Conversa","com o Larbond","Quarta-feira, 2 dez. · 17h30","Campus","20261202T173000"]];
+function hero(){
+ var steps=[["1","Cria o teu perfil","Diz o teu curso e o que sabes ou queres aprender."],["2","Descobre","Compara cursos, encontra pessoas, grupos e oportunidades."],["3","Liga-te","Envia uma mensagem, junta-te a um grupo ou propõe uma troca."]];
+ return '<section class="welcome" aria-label="'+esc(t("Bem-vindo/a ao Stellamus"))+'"><span class="welcome-tag">'+esc(t("Começa em 30 segundos"))+'</span><h2>'+esc(t("Bem-vindo/a ao Stellamus"))+'</h2><p>'+esc(t("Explora sem conta: cursos, bolsas e debates. Cria conta grátis para trocar skills e falar com pessoas."))+'</p><ol class="welcome-steps">'+
+ steps.map(function(x){return '<li><b>'+x[0]+'</b><div><strong>'+esc(t(x[1]))+'</strong><span>'+esc(t(x[2]))+'</span></div></li>'}).join("")+'</ol><div class="row"><button class="btn s" type="button" data-a="visitorlogin">'+esc(t("Criar conta grátis"))+'</button><button class="btn sec s" type="button" data-go="explorar">'+esc(t("Ver os cursos"))+'</button></div></section>'}
+function events(){
+ return '<section class="events" aria-label="'+esc(t("Encontros Liga-te"))+'"><div class="events-h"><h3>'+esc(t("Encontros Liga-te"))+'</h3><p class="sm m">'+esc(t("Vem conhecer-nos ao vivo. Entrada livre."))+'</p></div><div class="events-g">'+
+ EV.map(function(e){return '<article class="ev"><b class="ev-t">'+esc(t(e[0]))+'</b>'+(e[1]?'<span class="ev-p">'+esc(t(e[1]))+'</span>':'')+'<span class="ev-w">'+esc(t(e[2]))+'</span><span class="ev-l">'+esc(t(e[3]))+'</span><button type="button" class="lnk" data-ics="'+e[4]+'" data-title="'+esc(e[0])+' (Stellamus)" data-place="'+esc(e[3])+'">'+esc(t("Adicionar ao calendário"))+'</button></article>'}).join("")+'</div></section>'}
+var _i=RENDER.inicio;
+RENDER.inicio=function(){
+ var h=_i();
+ /* atalhos: título + chips, em vez de ligações soltas */
+ h=h.replace(/<div class="home-links">/,'<div class="home-links-wrap"><span class="home-links-h">'+esc(t("Atalhos"))+'</span><div class="home-links">');
+ var k=h.lastIndexOf('</aside>');
+ if(k>-1&&h.indexOf('home-links-wrap')>-1){var j=h.lastIndexOf('</div></aside>');if(j>-1)h=h.slice(0,j)+'</div></div></aside>'+h.slice(j+'</div></aside>'.length)}
+ return (DB?'':hero())+events()+h};
+document.addEventListener("click",function(e){var b=e.target.closest&&e.target.closest("[data-ics]");if(!b)return;
+ var st=b.getAttribute("data-ics"),ics=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Stellamus//PT","BEGIN:VEVENT","UID:"+st+"@stellamus","DTSTAMP:"+st+"Z","DTSTART;TZID=Europe/Lisbon:"+st,"SUMMARY:"+b.getAttribute("data-title"),"LOCATION:"+b.getAttribute("data-place"),"END:VEVENT","END:VCALENDAR"].join("\r\n");
+ var u=URL.createObjectURL(new Blob([ics],{type:"text/calendar"})),l=document.createElement("a");l.href=u;l.download="stellamus.ics";document.body.appendChild(l);l.click();l.remove()});
+var c=document.createElement("style");c.textContent=[
+'.welcome{position:relative;overflow:hidden;display:grid;gap:12px;padding:clamp(18px,4vw,28px);margin:0 0 18px;border-radius:22px;border:1px solid var(--line,rgba(255,255,255,.14));background:radial-gradient(120% 140% at 0 0,rgba(255,139,184,.18),transparent 55%),radial-gradient(100% 120% at 100% 100%,rgba(110,231,249,.14),transparent 55%),var(--panel,rgba(255,255,255,.04))}',
+'.welcome h2{margin:0;font-size:clamp(1.5rem,5vw,2.1rem);line-height:1.1}.welcome p{margin:0;max-width:56ch;color:var(--muted)}',
+'.welcome-tag{justify-self:start;padding:4px 12px;border-radius:999px;font:700 .74rem var(--f-body);letter-spacing:.04em;text-transform:uppercase;background:var(--accent,#FF8BB8);color:#0E1326}',
+'.welcome-steps{list-style:none;margin:2px 0;padding:0;display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}',
+'.welcome-steps li{display:flex;gap:12px;align-items:flex-start;padding:12px;border-radius:16px;background:rgba(255,255,255,.05);border:1px solid var(--line,rgba(255,255,255,.1))}',
+'.welcome-steps li>b{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--accent,#FF8BB8);color:#0E1326;font-size:.95rem}',
+'.welcome-steps strong{display:block}.welcome-steps span{display:block;font-size:.85rem;color:var(--muted);margin-top:2px}',
+'.events{display:grid;gap:10px;margin:0 0 18px}.events-h h3,.events-h p{margin:0}',
+'.events-g{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}',
+'.ev{display:grid;gap:3px;align-content:start;padding:14px;border-radius:16px;border:1px solid var(--line,rgba(255,255,255,.12));background:var(--panel,rgba(255,255,255,.04))}',
+'.ev-t{font-size:1.02rem}.ev-p{font-size:.85rem;color:var(--accent,#FF8BB8);font-weight:650}.ev-w{font-size:.88rem}.ev-l{font-size:.82rem;color:var(--muted)}',
+'.ev .lnk{justify-self:start;margin-top:6px;font-size:.82rem;font-weight:650}',
+'.home-links-wrap{display:grid;gap:8px;padding:6px 0}.home-links-h{font:700 .74rem var(--f-body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}',
+'#main .home-side .home-links,#main .home-side>.home-links-wrap .home-links{display:flex;flex-wrap:wrap;justify-content:flex-start;gap:8px;padding:0}',
+'#main .home-side .home-links .lnk{display:inline-flex;align-items:center;min-height:38px;padding:8px 14px;border-radius:999px;border:1px solid var(--line,rgba(255,255,255,.18));background:var(--panel,rgba(255,255,255,.05));color:var(--ink);font-size:.86rem;font-weight:650;text-decoration:none}',
+'#main .home-side .home-links .lnk:hover{background:rgba(255,255,255,.1)}'
+].join("\n");document.head.appendChild(c);
 })();
 </script>
 </body>
