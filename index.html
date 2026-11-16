@@ -692,6 +692,16 @@ html.anf-paused *,html.anf-paused *::after{animation-play-state:paused!important
 </style>
 
 
+<style id="anf-light-fix">
+html.anf-light .ev,html.anf-light .welcome-steps li,html.anf-light .banner,html.anf-light .cl-band,html.anf-light .nsteps,html.anf-light .opx,html.anf-light .qv,html.anf-light .tart,html.anf-light .tex,html.anf-light .ax-cat,html.anf-light .ax-nc,html.anf-light .ax-real,html.anf-light .ax-tag,html.anf-light .ax-try,html.anf-light .mais-i,html.anf-light .adm-stats div,html.anf-light .fh-st{background:#fff;border:1px solid rgba(28,26,51,.18);box-shadow:0 1px 3px rgba(28,26,51,.07)}
+html.anf-light .welcome{background:radial-gradient(120% 140% at 0 0,rgba(255,139,184,.18),transparent 55%),radial-gradient(100% 120% at 100% 100%,rgba(110,231,249,.14),transparent 55%),#fff;border:1px solid rgba(28,26,51,.18);box-shadow:0 2px 8px rgba(28,26,51,.08)}
+html.anf-light .chip,html.anf-light .tag,html.anf-light .qv-chip,html.anf-light .ax-chip{background:#fff;border-color:rgba(28,26,51,.22)}
+html.anf-light .btn.sec{background:#fff;border:1px solid rgba(28,26,51,.3)}
+html.anf-light .fld,html.anf-light select.fld,html.anf-light textarea.fld,html.anf-light input.fld{background:#fff;border-color:rgba(28,26,51,.28)}
+.ev-cal{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.ev-cal .ev-cl{font-size:.8rem;opacity:.75;flex-basis:100%}
+.ev-cal a{display:inline-block;padding:5px 12px;border-radius:999px;border:1px solid currentColor;font-size:.82rem;font-weight:650;text-decoration:none}
+</style>
 </head>
 <body>
 <div class="app">
@@ -3320,7 +3330,7 @@ landingHTML=function(){
     '<div class="orbitwrap">'+orbitViz(["l1","l2","l3","l4","l5","l6","l7","l8","l9","l10"],400,true)+'<p class="xs m" style="text-align:center">'+esc(t("O teu anfiteatro: cada lugar é alguém da tua rede, e a 1.ª fila é quem tem mais em comum contigo."))+'</p></div></section>'+
     '<div class="tourmix">'+tourHTML()+'<section class="stack"><h2>'+esc(t("Para que vens à Anfitriu"))+'</h2><div class="pillars col">'+pillars.map(function(p){return'<button class="pillar row1" type="button" data-go="'+p[4]+'" style="--c:var(--'+p[1]+')"><span class="pic">'+ico(p[0],26)+'</span><span class="stack-s" style="gap:.2rem"><b>'+esc(t(p[2]))+'</b><span>'+esc(t(p[3],{c:cs.cursos,i:cs.inst}))+'</span></span></button>'}).join("")+'</div></section></div>'+
     featsHTML(true)+
-    '<section class="stack"><div class="ph"><h2>'+esc(t("Como funciona"))+'</h2><span class="xs m">'+esc(t("3 passos, 2 minutos"))+'</span></div><ol class="steps3"><li><b>'+esc(t("Cria o perfil"))+'</b><span>'+esc(t("Instituição, curso e cinco notas rápidas ao teu curso. As tuas notas ajudam logo quem está a escolher."))+'</span></li><li><b>'+esc(t("Descobre"))+'</b><span>'+esc(t("Vê como são os cursos por dentro, compara-os e encontra bolsas e prazos."))+'</span></li><li><b>'+esc(t("Liga-te"))+'</b><span>'+esc(t("Junta pessoas ao teu anfiteatro, troca skills e entra em comunidades."))+'</span></li></ol></section>'+
+    '<section class="stack"><div class="ph"><h2>'+esc(t("Como funciona"))+'</h2><span class="xs m">'+esc(t("3 passos, 2 minutos"))+'</span></div><ol class="steps3"><li><b>'+esc(t("Cria o perfil"))+'</b><span>'+esc(t("Instituição, curso e cinco notas rápidas ao teu curso. As tuas notas ajudam logo quem está a escolher."))+'</span></li><li><b>'+esc(t("Descobre"))+'</b><span>'+esc(t("Vê como são os cursos por dentro, compara-os e encontra bolsas e prazos."))+'</span></li><li><b>'+esc(t("Participa"))+'</b><span>'+esc(t("Junta pessoas ao teu anfiteatro, troca skills e entra em comunidades."))+'</span></li></ol></section>'+
     '<section class="stack" id="guia"><div class="ph"><h2>'+esc(t("O que há em cada secção"))+'</h2></div>'+siteMapHTML()+'</section>';
 };
 
@@ -3589,7 +3599,7 @@ document.addEventListener("change",function(e){var el=e.target;if(el&&el.id==="p
  "Instituição, curso e cinco notas rápidas ao teu curso. As tuas notas ajudam logo quem está a escolher.":["Institution, course and five quick ratings of your course. Your ratings help people choosing right away.","Institución, curso y cinco notas rápidas a tu curso. Tus notas ayudan enseguida a quien está eligiendo.","Hochschule, Studiengang und fünf Schnellbewertungen. Deine Noten helfen sofort allen, die wählen.","Établissement, formation et cinq notes rapides à ta formation. Tes notes aident tout de suite ceux qui choisissent.","Istituzione, corso e cinque voti rapidi al tuo corso. I tuoi voti aiutano subito chi sta scegliendo."],
  "Descobre":["Discover","Descubre","Entdecken","Découvre","Scopri"],
  "Vê como são os cursos por dentro, compara-os e encontra bolsas e prazos.":["See what courses are like from the inside, compare them and find scholarships and deadlines.","Mira cómo son los cursos por dentro, compáralos y encuentra becas y plazos.","Sieh dir Studiengänge von innen an, vergleiche sie und finde Stipendien und Fristen.","Découvre les formations de l'intérieur, compare-les et trouve bourses et dates limites.","Guarda i corsi dall'interno, confrontali e trova borse e scadenze."],
- "Liga-te":["Connect","Conéctate","Vernetze dich","Connecte-toi","Collegati"],
+ "Participa":["Take part","Participa","Mach mit","Participe","Partecipa"],
  "Junta pessoas ao teu anfiteatro, troca skills e entra em comunidades.":["Add people to your orbit, swap skills and join communities.","Añade personas a tu grada, intercambia skills y únete a comunidades.","Füge Leute zu deinem Orbit hinzu, tausche Skills und tritt Communities bei.","Ajoute des gens à ton orbite, échange des compétences et rejoins des communautés.","Aggiungi persone alla tua orbita, scambia skill ed entra nelle comunità."],
  "O que há em cada secção":["What's in each section","Qué hay en cada sección","Was es in jedem Bereich gibt","Ce qu'il y a dans chaque section","Cosa c'è in ogni sezione"],
  "Primeiros passos":["First steps","Primeros pasos","Erste Schritte","Premiers pas","Primi passi"],
@@ -7935,7 +7945,7 @@ var c=document.createElement("style");c.textContent='.fbx{display:inline;font-si
 })();
 </script>
 <script>
-/* Stellamus — início renovado: atalhos formatados, boas-vindas com tutorial em 30 segundos e encontros Liga-te (15 nov 2026) */
+/* Stellamus — início renovado: atalhos formatados, boas-vindas com tutorial em 30 segundos e encontros (15 nov 2026) */
 (function(){
 if(typeof RENDER==="undefined"||typeof RENDER.inicio!=="function")return;
 var LI={pt:0,en:1};
@@ -7944,24 +7954,28 @@ try{var EN=(window.I18N=window.I18N||{}).en=window.I18N.en||{};
  "Explora sem conta: cursos, bolsas e debates. Cria conta grátis para trocar skills e falar com pessoas.":"Explore without an account: courses, scholarships and debates. Create a free account to swap skills and talk to people.",
  "Cria o teu perfil":"Create your profile","Diz o teu curso e o que sabes ou queres aprender.":"Tell us your course and what you know or want to learn.",
  "Descobre":"Discover","Compara cursos, encontra pessoas, grupos e oportunidades.":"Compare courses, find people, groups and opportunities.",
- "Liga-te":"Connect","Envia uma mensagem, junta-te a um grupo ou propõe uma troca.":"Send a message, join a group or propose a swap.",
+ "Participa":"Take part","Envia uma mensagem, junta-te a um grupo ou propõe uma troca.":"Send a message, join a group or propose a swap.",
  "Criar conta grátis":"Create a free account","Ver os cursos":"See the courses","Atalhos":"Shortcuts",
- "Encontros Liga-te":"Liga-te meetups","Vem conhecer-nos ao vivo. Entrada livre.":"Come and meet us in person. Free entry.",
+ "Encontros":"Meetups","Vem conhecer-nos ao vivo. Entrada livre.":"Come and meet us in person. Free entry.",
  "Noite de Decisões":"Decision Night","Café Aberto":"Open Café","Roda de Conversa":"Conversation Circle",
  "com o LifeLab":"with LifeLab","com o Larbond":"with Larbond","Quinta-feira, 19 nov. · 18h00":"Thursday, 19 Nov · 6:00 pm",
  "Terça-feira, 24 nov. · 9h00":"Tuesday, 24 Nov · 9:00 am","Quarta-feira, 2 dez. · 17h30":"Wednesday, 2 Dec · 5:30 pm",
- "Adicionar ao calendário":"Add to calendar","Inscrever-me nos encontros":"Sign up for the meetups","Cantina da FCH Católica":"FCH Católica canteen"};
+ "Adicionar ao calendário":"Add to calendar","Demonstrar interesse nos encontros":"Show interest in the meetups","Cantina da FCH Católica":"FCH Católica canteen"};
  for(var k in T)if(!EN[k])EN[k]=T[k]}catch(e){}
 var EV=[["Noite de Decisões","com o LifeLab","Quinta-feira, 19 nov. · 18h00","Campus","20261119T180000"],
  ["Café Aberto","","Terça-feira, 24 nov. · 9h00","Cantina da FCH Católica","20261124T090000"],
  ["Roda de Conversa","com o Larbond","Quarta-feira, 2 dez. · 17h30","Campus","20261202T173000"]];
 function hero(){
- var steps=[["1","Cria o teu perfil","Diz o teu curso e o que sabes ou queres aprender."],["2","Descobre","Compara cursos, encontra pessoas, grupos e oportunidades."],["3","Liga-te","Envia uma mensagem, junta-te a um grupo ou propõe uma troca."]];
+ var steps=[["1","Cria o teu perfil","Diz o teu curso e o que sabes ou queres aprender."],["2","Descobre","Compara cursos, encontra pessoas, grupos e oportunidades."],["3","Participa","Envia uma mensagem, junta-te a um grupo ou propõe uma troca."]];
  return '<section class="welcome" aria-label="'+esc(t("Bem-vindo/a ao Stellamus"))+'"><span class="welcome-tag">'+esc(t("Começa em 30 segundos"))+'</span><h2>'+esc(t("Bem-vindo/a ao Stellamus"))+'</h2><p>'+esc(t("Explora sem conta: cursos, bolsas e debates. Cria conta grátis para trocar skills e falar com pessoas."))+'</p><ol class="welcome-steps">'+
  steps.map(function(x){return '<li><b>'+x[0]+'</b><div><strong>'+esc(t(x[1]))+'</strong><span>'+esc(t(x[2]))+'</span></div></li>'}).join("")+'</ol><div class="row"><button class="btn s" type="button" data-a="visitorlogin">'+esc(t("Criar conta grátis"))+'</button><button class="btn sec s" type="button" data-go="explorar">'+esc(t("Ver os cursos"))+'</button></div></section>'}
+function evEnd(st){var h=parseInt(st.slice(9,11),10)+2,p=function(n){return(n<10?"0":"")+n};return st.slice(0,9)+p(h)+st.slice(11)}
+function evT(e){return e[0]+" (Stellamus)"}
+function evG(e){return"https://calendar.google.com/calendar/render?action=TEMPLATE&text="+encodeURIComponent(evT(e))+"&dates="+e[4]+"/"+evEnd(e[4])+"&ctz=Europe/Lisbon&details="+encodeURIComponent((e[1]?e[1]+"\n\n":"")+"Stellamus")+"&location="+encodeURIComponent(e[3])}
+function evO(e){var f=function(x){return x.slice(0,4)+"-"+x.slice(4,6)+"-"+x.slice(6,8)+"T"+x.slice(9,11)+":"+x.slice(11,13)+":00"};return"https://outlook.live.com/calendar/0/deeplink/compose?path=%2Fcalendar%2Faction%2Fcompose&rru=addevent&subject="+encodeURIComponent(evT(e))+"&startdt="+encodeURIComponent(f(e[4]))+"&enddt="+encodeURIComponent(f(evEnd(e[4])))+"&location="+encodeURIComponent(e[3])}
 function events(){
- return '<section class="events" aria-label="'+esc(t("Encontros Liga-te"))+'"><div class="events-h"><h3>'+esc(t("Encontros Liga-te"))+'</h3><p class="sm m">'+esc(t("Vem conhecer-nos ao vivo. Entrada livre."))+'</p></div><div class="events-g">'+
- EV.map(function(e){return '<article class="ev"><b class="ev-t">'+esc(t(e[0]))+'</b>'+(e[1]?'<span class="ev-p">'+esc(t(e[1]))+'</span>':'')+'<span class="ev-w">'+esc(t(e[2]))+'</span><span class="ev-l">'+esc(t(e[3]))+'</span><button type="button" class="lnk" data-ics="'+e[4]+'" data-title="'+esc(e[0])+' (Stellamus)" data-place="'+esc(e[3])+'">'+esc(t("Adicionar ao calendário"))+'</button></article>'}).join("")+'</div><div class="row"><a class="btn s" href="https://tally.so/r/6DjbVe" target="_blank" rel="noopener">'+esc(t("Inscrever-me nos encontros"))+'</a></div></section>'}
+ return '<section class="events" aria-label="'+esc(t("Encontros"))+'"><div class="events-h"><h3>'+esc(t("Encontros"))+'</h3><p class="sm m">'+esc(t("Vem conhecer-nos ao vivo. Entrada livre."))+'</p></div><div class="events-g">'+
+ EV.map(function(e){return '<article class="ev"><b class="ev-t">'+esc(t(e[0]))+'</b>'+(e[1]?'<span class="ev-p">'+esc(t(e[1]))+'</span>':'')+'<span class="ev-w">'+esc(t(e[2]))+'</span><span class="ev-l">'+esc(t(e[3]))+'</span><div class="ev-cal"><span class="ev-cl">'+esc(t("Adicionar ao calendário"))+'</span><a href="'+evG(e)+'" target="_blank" rel="noopener">Google</a><a href="'+evO(e)+'" target="_blank" rel="noopener">Outlook</a></div></article>'}).join("")+'</div><div class="row"><a class="btn s" href="https://tally.so/r/6DjbVe" target="_blank" rel="noopener">'+esc(t("Demonstrar interesse nos encontros"))+'</a></div></section>'}
 var _ativ=RENDER.atividades;
 RENDER.atividades=function(){var h=_ativ();return (typeof DET!=="undefined"&&DET)?h:events()+h};
 var _i=RENDER.inicio;
@@ -8007,6 +8021,26 @@ loginHTML=function(){var h=_l();if(h.indexOf('id="lg-email"')<0)return h;
  return h.replace('<span class="msg" id="lg-msg">',w+'<span class="msg" id="lg-msg">')};
 var c=document.createElement("style");c.textContent='.mailwarn{display:grid;gap:2px;margin-top:10px;padding:10px 12px;border-radius:12px;border:1px solid #F5B94A;background:rgba(245,185,74,.14);font-size:.84rem;line-height:1.4}.mailwarn b{color:#F5B94A}.mailwarn span{color:var(--ink)}html.anf-light .mailwarn b{color:#8A5A00}';
 document.head.appendChild(c);
+})();
+</script>
+<script>
+/* Stellamus — tutorial de 30 segundos como widget demonstrativo no Início (15 nov 2026) */
+(function(){
+if(typeof RENDER==="undefined"||typeof RENDER.inicio!=="function"||typeof tourHTML!=="function")return;
+var _i=RENDER.inicio;
+RENDER.inicio=function(){
+ var h=_i(),w="";
+ try{w=tourHTML().replace(/<button class="lnk m sm" type="button" data-a="tourhide">[\s\S]*?<\/button>/,"")}catch(e){w=""}
+ if(!w)return h;
+ return h.replace(/<details id="home-tour"[\s\S]*?<\/details>/,'<div class="home-tourw">'+w+'</div>')};
+var c=document.createElement("style");c.textContent=[
+'@media(min-width:701px){#main .social-home{max-width:1120px;grid-template-columns:minmax(0,1fr) minmax(300px,360px)}}',
+'#main .home-side .home-tourw{width:100%}',
+'#main .home-side .home-tourw .tour{width:100%;box-sizing:border-box}',
+'#main .home-side .home-tourw .tslide{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:.8rem;min-height:0}',
+'#main .home-side .home-tourw .tart{display:grid;place-items:center;max-width:100%;overflow:hidden}',
+'#main .home-side .home-tourw .tart svg{max-width:100%;height:auto}'
+].join("\n");document.head.appendChild(c);
 })();
 </script>
 </body>
